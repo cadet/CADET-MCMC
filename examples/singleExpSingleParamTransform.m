@@ -51,7 +51,7 @@ function singleExpSingleParamTransform()
 
 	% Add the experiment to the fit (unit operation 0 is observed, which is the GRM) including name
 	% of the experiment and the different observations / wavelengths
-	pf.addExperiment(data, sim, [0 0 0], idxComp, [], [], [], [], 'Experiment1', {'Cyt', 'RNase', 'Lys'});
+	pf.addExperiment(data, sim, [0 0 0], idxComp, [], [], 1 ./ masses, dataWeight, 'Experiment1', {'Cyt', 'RNase', 'Lys'});
 
 	% Enable logarithmic parameter transformation for all parameters
 	% The sign of each parameter is determined from initParams
