@@ -105,9 +105,9 @@ function fitAcetone_AIO
     % all the datasets (e.g., duplications) here. Thus I link all the parameters
     % in the fashion of ([indexExp], [indexParam])
     pf.addLink([1, 2, 3], [1, 1, 1]);
-    pf.addLink([1, 2, 3], [2, 2, 2]);    
+    pf.addLink([1, 2, 3], [2, 2, 2]);
     pf.addLink([1, 2, 3], [3, 3, 3]);
-    pf.addLink([1, 2, 3], [4, 4, 4]);    
+    pf.addLink([1, 2, 3], [4, 4, 4]);
     pf.addLink([1, 2, 3], [5, 5, 5]);
 
     % This variable serves as storage for the plot handles returned by the plot function of parameterFit

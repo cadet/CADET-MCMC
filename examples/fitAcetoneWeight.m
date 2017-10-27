@@ -32,7 +32,7 @@ function fitAcetoneWeight
     idxComp{1} = [1];
 
     % Add weight to dataset. Because different experiments have different concentration unit.
-    % The order of magnitude will affect the Metropolis probability 
+    % The order of magnitude will affect the Metropolis probability
     dataWeight = cell(1,1);
     dataWeight{1} = ones(length(temp), 1) .* 1;
 

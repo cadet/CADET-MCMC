@@ -1,9 +1,9 @@
 function fitLysozyme_AIO
 %==============================================================================
 % Fit the breakthrough curves of lysozyme
-% In the estimation of parameters due to the datasets (e.g., different elution 
+% In the estimation of parameters due to the datasets (e.g., different elution
 % gradient) from one experiment, the effcts of datasets are lumped together to
-% determine parameter distributions 
+% determine parameter distributions
 %
 % fitting parameters: theta = {D_ax, K_f, D_p, e_c, e_p, k_eq, nu, sigma}
 %==============================================================================
@@ -178,16 +178,16 @@ function fitLysozyme_AIO
 
 %------------------------------------------------------------------------------
 
-    % The intent here is that I am trying to find a parameter set, which fits 
+    % The intent here is that I am trying to find a parameter set, which fits
     % all the datasets (e.g., varying elution gradients) here. Thus I link all
     % the parameters in the fashion of ([indexExp], [indexParam])
     pf.addLink([1, 2, 3, 4, 5], [1, 1, 1, 1, 1]);
-    pf.addLink([1, 2, 3, 4, 5], [2, 2, 2, 2, 2]);    
+    pf.addLink([1, 2, 3, 4, 5], [2, 2, 2, 2, 2]);
     pf.addLink([1, 2, 3, 4, 5], [3, 3, 3, 3, 3]);
-    pf.addLink([1, 2, 3, 4, 5], [4, 4, 4, 4, 4]);    
+    pf.addLink([1, 2, 3, 4, 5], [4, 4, 4, 4, 4]);
     pf.addLink([1, 2, 3, 4, 5], [5, 5, 5, 5, 5]);
     pf.addLink([1, 2, 3, 4, 5], [6, 6, 6, 6, 6]);
-    pf.addLink([1, 2, 3, 4, 5], [7, 7, 7, 7, 7]);    
+    pf.addLink([1, 2, 3, 4, 5], [7, 7, 7, 7, 7]);
     pf.addLink([1, 2, 3, 4, 5], [8, 8, 8, 8, 8]);
 
     % This variable serves as storage for the plot handles returned by the plot function of parameterFit
