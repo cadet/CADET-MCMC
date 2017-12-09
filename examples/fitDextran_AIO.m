@@ -35,8 +35,8 @@ function fitDextran_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Dextran', {'007'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 5), true(1, 5));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 5), false(1, 5));
 
 % Experiment two
 %------------------------------------------------------------------------------
@@ -64,8 +64,8 @@ function fitDextran_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Dextran', {'006'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 5), true(1, 5));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 5), false(1, 5));
 
 % Experiment three
 %------------------------------------------------------------------------------
@@ -93,8 +93,8 @@ function fitDextran_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Dextran', {'005'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 5), true(1, 5));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 5), false(1, 5));
 
 %------------------------------------------------------------------------------
 

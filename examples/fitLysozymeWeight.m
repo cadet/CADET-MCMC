@@ -46,8 +46,8 @@ function fitLysozyme
 %    pf.addExperiment(data, sim, [0], idxComp, [], [], 1./mass, dataWeight, 'Lysozyme', {'Lysozyme'});
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], dataWeight, 'Lysozyme', {'Lysozyme'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 8), true(1, 8));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 8), false(1, 8));
 
 
     % This variable serves as storage for the plot handles returned by the plot function of parameterFit

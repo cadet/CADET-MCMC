@@ -41,8 +41,8 @@ function fitLysozyme_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Lysozyme', {'5cv'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 8), true(1, 8));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 8), false(1, 8));
 
 
 % Experiment two
@@ -74,8 +74,8 @@ function fitLysozyme_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Lysozyme', {'10cv'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 8), true(1, 8));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 8), false(1, 8));
 
 
 % Experiment three
@@ -107,8 +107,8 @@ function fitLysozyme_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Lysozyme', {'30cv'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 8), true(1, 8));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 8), false(1, 8));
 
 
 % Experiment four
@@ -140,8 +140,8 @@ function fitLysozyme_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Lysozyme', {'60cv'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 8), true(1, 8));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 8), false(1, 8));
 
 
 % Experiment five
@@ -173,8 +173,8 @@ function fitLysozyme_AIO
     % Add the experiment to the fit
     pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Lysozyme', {'120cv'});
 
-    % Enable logarithmic parameter transformation for all parameters
-    pf.parameterTransform = LogParameterTransformation(ones(1, 8), true(1, 8));
+    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
+    pf.parameterTransform = LogParameterTransformation(ones(1, 8), false(1, 8));
 
 %------------------------------------------------------------------------------
 
