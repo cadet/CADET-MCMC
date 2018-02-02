@@ -203,10 +203,16 @@ function fitLysozyme_AIO
 
     function res = residualSumOfSquares(x)
 
-        % Calculate the residual between meas data and simulated data
-        res = pf.residualVector(x);
-        % Calculate the sum of square: res = R' * R
-        res = sum(res.^2);
+        try
+            % Calculate the residual between meas data and simulated data
+            res = pf.residualVector(x);
+            % Calculate the sum of square: res = R' * R
+            res = sum(res.^2);
+        catch e
+            fprintf('%s', e.message);
+            res = OptAlgo.crashSaver(x);
+        end
+
         % Visualization
         plotHd = pf.plot(plotHd, 0, [], false, false, false);
 

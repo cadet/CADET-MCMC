@@ -2553,7 +2553,7 @@ classdef OptAlgo < handle
 %------------------------------------------------------------------------------
 
             % check to see if xticklabel_rotate has already been here (no other reason for this to happen)
-            if isempty(get(gca,'XTickLabel')),
+            if isempty(get(gca,'XTickLabel'))
                 error('OptAlgo.xtickLabelRotate: can not process, either xticklabel_rotate has already been run or XTickLabel field has been erased \n');
             end
 
@@ -2721,11 +2721,18 @@ classdef OptAlgo < handle
             set(hText,'units','normalized');
             set(gca,'units','normalized');
 
-            if nargout < 1,
+            if nargout < 1
                 clear hText
             end
 
         end % xtickLabelRotate
+
+        function res = crashSaver(x)
+
+            save('crashParams.dat', 'x', '-ascii', '-append');
+            res = 1e8;
+
+        end % crashSaver
 
     end % method
 
