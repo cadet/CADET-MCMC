@@ -61,17 +61,16 @@ function fitAcetoneWeight
             res = pf.residualVector(x);
             % Calculate the sum of square: res = R' * R
             res = sum(res.^2);
+
+            % Visualization
+            plotHd = pf.plot(plotHd, 0, [], false, false, false);
         catch e
-            fprintf('%s', e.message);
-            res = OptAlgo.crashSaver(x);
+            res = OptAlgo.crashSaver(x, e);
         end
 
-        % Visualization
-        plotHd = pf.plot(plotHd, 0, [], false, false, false);
+    end %residualSumOfSquares
 
-    end
-
-end
+end %fitAcetoneWeight
 
 function sim = createModel(tOut)
 %------------------------------------------------------------------------------

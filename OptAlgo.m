@@ -2727,10 +2727,11 @@ classdef OptAlgo < handle
 
         end % xtickLabelRotate
 
-        function res = crashSaver(x)
+        function res = crashSaver(x, e)
 
             save('crashParams.dat', 'x', '-ascii', '-append');
-            res = 1e8;
+            fprintf('%s The parameter set results in this crash has been stored in crashParams.dat\n', e.message);
+            res = 68106800;
 
         end % crashSaver
 
