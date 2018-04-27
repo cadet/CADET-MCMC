@@ -15,652 +15,6 @@ classdef OptAlgo < handle
     end
 
 
-% Lower level algorithms, in charge of continuous decision variables optimization
-% -----------------------------------------------------------------------------
-%   DE
-    methods (Static = true, Access = 'public')
-
-        function [xValue, yValue] = Differential_Evolution(FUNC, opt)
-% -----------------------------------------------------------------------------
-% Differential Evolution algorithm (DE)
-%
-% DE optimizes a problem by maintaining a population of candidate solutions
-% and creating new candidate solutions by combing existing ones according
-% to its mathematical formula, and then keeping whichever candidate solution
-% has the best score or fitness on the optimization problem at hand
-%
-% Parameter:
-%       - FUNC. The objective function from your field
-%
-% Returns:
-%       - xValue. The optimal parameter set
-%       - yValue. The value of objective function with optimal parameter set
-% -----------------------------------------------------------------------------
-
-
-            startTime = clock;
-
-            if nargin < 2
-                error('OptAlgo.DE: There are no enough inputs \n');
-            end
-
-            % Get the optimizer options
-            opt = OptAlgo.getOptionsDE(opt);
-
-            % Initialization of the population
-            [Population, OptPopul] = OptAlgo.initChainDE(FUNC, opt);
-
-%----------------------------------------------------------------------------------------
-
-% The main loop
-% ---------------------------------------------------------------------------------------
-            for i = 1:opt.nsamples
-
-                % The evolution of each generation
-                [Population, OptPopul] = OptAlgo.evolutionDE(FUNC, Population, OptPopul, opt);
-
-                % Abstract best information so far from the population and display it
-                yValue = OptPopul(opt.Nchain+1, opt.Nparams+1);
-                xValue = OptAlgo.pTransfer('exp', OptPopul(1, 1:opt.Nparams));
-
-                fprintf('Iter = %5d   ----------------   Minimum: %10.3g  ---------------- \n', i, yValue);
-                fprintf('%10.3g | ', xValue); fprintf('\n');
-
-                % The convergence criterion: when the standard deviation is smaller
-                %   than the specified tolerence
-                if mod(i, 5) == 0
-                    delta = std(Population(:, 1:opt.Nparams)) ./ mean(Population(:, 1:opt.Nparams));
-
-                    if all(abs(delta) < opt.criterion) || i == opt.nsamples
-                        maxIter = i;
-                        break
-                    end
-                end
-
-            end % for i = 1:opt.nsamples
-
-%----------------------------------------------------------------------------------------
-
-% Post-process
-%----------------------------------------------------------------------------------------
-            % Gather some useful information and store them in the debug mode
-            result.optTime        = etime(clock, startTime)/3600; % in hours
-            result.convergence    = delta;
-            result.correlation    = corrcoef(Population(:, 1:opt.Nparams));
-            result.Iteration      = maxIter;
-            result.xValue         = xValue;
-            result.yValue         = yValue;
-
-            fprintf('\n****************************************************** \n');
-            save(sprintf('result_%2d.mat',fix(rand*100)),'result');
-            fprintf('Time %5.3g hours elapsed after %5d iterations \n', result.optTime, result.Iteration);
-            fprintf('Objective value: %10.3g \n', yValue);
-            fprintf('Optimal set: ');
-            fprintf(' %g |', xValue);
-            fprintf('\nThe statistical information of DE is stored as result.mat \n');
-            fprintf('****************************************************** \n');
-
-        end % Differential_Evolution
-
-        function opt = getOptionsDE(obj)
-% -----------------------------------------------------------------------------
-%  The parameters for the Optimizer
-%
-%  Return:
-%       - opt.
-%           + Nchain. The number of the candidates (particles)
-%           + Nparams. The number of the optimized parameters
-%           + bounds. The boundary limitation of the parameters
-%           + nsamples. The maximum number of algorithm's iteration
-%           + crossProb. The cross-over probability in DE's formula
-%           + weight. The weight coefficients in DE's formula
-%           + strategy. There are 1,2,3,4,5,6 strategies in DE algorithm to
-%               deal with the cross-over and mutation. As for detais, we
-%               will refer your the original paper of Storn and Price
-% -----------------------------------------------------------------------------
-
-
-            opt = [];
-
-            opt.Nchain      = OptAlgo.swarm;
-            opt.Nparams     = length(obj.params);
-            opt.bounds      = OptAlgo.pTransfer('log', obj.paramBound);
-            opt.nsamples    = OptAlgo.sample;
-            opt.criterion   = 0.01;
-
-            % Check out the dimension of the set of parameters, and the boundary limiatation
-            [row, col] = size(opt.Nparams);
-            if row > 1 || col > 1
-                error('OptAlgo.getOptionsDE: The initialized dimension of the set of parameters might be wrong \n');
-            end
-
-            [row, col] = size(opt.bounds);
-            if row ~= opt.Nparams || col ~= 2
-                error('OptAlgo.getOptionsDE: Please check your setup of the parameter range \n');
-            end
-
-            if mod(opt.nsamples, 5) ~= 0
-                error('OptAlgo.getOptionsDE: Please set the maximum iteration be divisible to 5 \n');
-            end
-
-            % Those are the specific parameters for the DE algorithm
-            opt.crossProb   = 0.5;
-            opt.weight      = 0.3;
-            opt.strategy    = 5;
-
-        end % getOptionsDE
-
-        function [Population, OptPopul] = initChainDE(FUNC, opt)
-% -----------------------------------------------------------------------------
-% The initilization of the population
-%
-%  Parameter:
-%       - opt.
-%           + Nchain. The number of the candidates (particles)
-%           + Nparams. The number of the optimized parameters
-%           + bounds. The boundary limitation of the parameters
-%           + nsamples. The maximum number of algorithm's iteration
-%           + crossProb. The cross-over probability in DE's formula
-%           + weight. The weight coefficients in DE's formula
-%           + strategy. There are 1,2,3,4,5,6 strategies in DE algorithm to
-%               deal with the cross-over and mutation. As for detais, we
-%               will refer your the original paper of Storn and Price
-%
-% Return:
-%       - Population. The population of the particles, correspondingly the objective value
-%       - OptPopul. The best fit found among the population.
-% -----------------------------------------------------------------------------
-
-
-            if nargin < 2
-                error('OptAlgo.initChainDE: There are no enough input arguments \n');
-            end
-
-            % Initialization of the parameters
-            Population = rand(opt.Nchain, opt.Nparams+1);
-
-            % Use vectorization to speed up. Keep the parameters in the domain
-            Population(:, 1:opt.Nparams) = repmat(opt.bounds(:,1)', opt.Nchain, 1) + ...
-                Population(:, 1:opt.Nparams) .* repmat( (opt.bounds(:,2) - opt.bounds(:,1))', opt.Nchain, 1 );
-
-            % Simulation of the sampled points
-            Population(:, opt.Nparams+1) = arrayfun( @(idx) feval(FUNC, ...
-                OptAlgo.pTransfer('exp', Population(idx, 1:opt.Nparams))), 1:opt.Nchain );
-
-            % if the parallel toolbox is available
-%            value = zeros(1, opt.Nchain);
-%            parameter = Population(1:opt.Nchain, 1:opt.Nparams);
-%            parfor i = 1:opt.Nchain
-%               value(i)= feval( FUNC, OptAlgo.pTransfer('exp', parameter(i,:)) )
-%            end
-%            Population(:,opt.Nparams+1) = value';
-
-            % The statistics of the population
-            [minValue, row] = min(Population(:, opt.Nparams+1));
-
-            % Preallocation and allocation
-            OptPopul = zeros(opt.Nchain+1, opt.Nparams+1);
-            OptPopul(opt.Nchain+1, opt.Nparams+1) = minValue;
-            OptPopul(1:opt.Nchain, 1:opt.Nparams) = repmat( Population(row, 1:opt.Nparams), opt.Nchain, 1);
-
-        end % initChainDE
-
-        function [Population, OptPopul] = evolutionDE(FUNC, Population, OptPopul, opt)
-% -----------------------------------------------------------------------------
-% The evolution of population
-%
-% Parameters:
-%       - Population. The population of the particles, correspondingly the objective value
-%       - OptPopul. The best fit found among the population.
-%       - opt. Please see the comments of the function, initChainDE
-%
-% Return:
-%       - Population. The population of the particles, correspondingly the objective value
-%       - OptPopul. The best fit found among the population.
-% -----------------------------------------------------------------------------
-
-
-            if nargin < 4
-                error('OptAlgo.evolutionDE: There are no enough input arguments \n');
-            end
-
-            R = opt.Nchain;
-            C = opt.Nparams;
-
-            indexArray = (0:1:R-1);
-            index = randperm(4);
-
-            cr_mutation = rand(R, C) < opt.crossProb;
-            cr_old = cr_mutation < 0.5;
-
-            ShuffRow1 = randperm(R);
-            idxShuff = rem(indexArray + index(1), R);
-            ShuffRow2 = ShuffRow1(idxShuff + 1);
-            idxShuff = rem(indexArray + index(2), R);
-            ShuffRow3 = ShuffRow2(idxShuff + 1);
-            idxShuff = rem(indexArray + index(3), R);
-            ShuffRow4 = ShuffRow3(idxShuff + 1);
-            idxShuff = rem(indexArray + index(4), R);
-            ShuffRow5 = ShuffRow4(idxShuff + 1);
-
-            PopMutR1 = Population(ShuffRow1, 1:C);
-            PopMutR2 = Population(ShuffRow2, 1:C);
-            PopMutR3 = Population(ShuffRow3, 1:C);
-            PopMutR4 = Population(ShuffRow4, 1:C);
-            PopMutR5 = Population(ShuffRow5, 1:C);
-
-            switch opt.strategy
-                case 1
-                % strategy 1
-                    tempPop = PopMutR3 + (PopMutR1 - PopMutR2) * opt.weight;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 2
-                % strategy 2
-                    tempPop = Population(1:R, 1:C) + opt.weight * (OptPopul(1:R, 1:C) - ...
-                        Population(1:R, 1:C)) + (PopMutR1 - PopMutR2) * opt.weight;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 3
-                % strategy 3
-                    tempPop = OptPopul(1:R, 1:C) + (PopMutR1 - PopMutR2) .* ((1 -0.9999) * rand(R, C) + opt.weight);
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 4
-                % strategy 4
-                    f1 = (1-opt.weight) * rand(R, 1) + opt.weight;
-                    PopMutR5 = repmat(f1, 1, C);
-
-                    tempPop = PopMutR3 + (PopMutR1 - PopMutR2) .* PopMutR5;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 5
-                % strategy 5
-                    f1 = (1-opt.weight) * rand + opt.weight;
-                    tempPop = PopMutR3 + (PopMutR1 - PopMutR2) * f1;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 6
-                % strategy 6
-                    if (rand < 0.5)
-                        tempPop = PopMutR3 + (PopMutR1 - PopMutR2) * opt.weight;
-                    else
-                        tempPop = PopMutR3 + 0.5 * (opt.weight + 1.0) * (PopMutR1 + PopMutR2 - 2 * PopMutR3);
-                    end
-
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-            end
-
-            % Check the boundary limitation
-            loBound = repmat(opt.bounds(:,1)', R, 1);
-            upBound = repmat(opt.bounds(:,2)', R, 1);
-            tempPop(tempPop < loBound) = loBound(tempPop < loBound);
-            tempPop(tempPop > upBound) = upBound(tempPop > upBound);
-
-            % Simulate the new population and compare their objective function values
-            tempValue(:, 1) = arrayfun( @(idx) feval( FUNC, ...
-                OptAlgo.pTransfer('exp', tempPop(idx, 1:C)) ), 1:R );
-
-            % if the parallel toolbox is available
-%            parfor i = 1:R
-%                tempValue(i,1)= feval( FUNC, OptAlgo.pTransfer('exp', tempPop(i,:)) )
-%            end
-
-            Population(tempValue < Population(:, C+1), 1:C) = tempPop(tempValue < Population(:, C+1), 1:C);
-            Population(tempValue < Population(:, C+1), C+1) = tempValue(tempValue < Population(:, C+1));
-
-            % Rank the objective function value to find the minimum
-            [minValue, minRow] = min(Population(:, C+1));
-
-            OptPopul(R+1, C+1) = minValue;
-            OptPopul(1:R, 1:C) = repmat( Population(minRow, 1:C), R, 1 );
-
-        end % evolutionDE
-
-
-    end % DE
-
-
-%   PSO
-    methods (Static = true, Access = 'public')
-
-        function [xValue, yValue] = Particle_Swarm_Optimization(FUNC, opt)
-% -----------------------------------------------------------------------------
-% Particle Swarm Optimization algorithm (PSO)
-%
-%  PSO optimizes a problem by having a population of candidates
-%  (particles), and moving these particles around in the search space
-%  according to mathematical formula ovet the particle's position and
-%  velocity. Each particle's movement is influenced by its own local
-%  best-known position but, is also guided toward the best-known positions
-%  in the search space, which are updated as better positions are found by
-%  other particles
-%
-% Returns:
-%       - xValue. The optimal parameter set
-%       - yValue. The value of objective function with optimal parameter set
-% -----------------------------------------------------------------------------
-
-
-            startTime = clock;
-
-            if nargin < 2
-                error('OptAlgo.PSO: There are no enough inputs \n');
-            end
-
-            % Get the optimizer options
-            opt = OptAlgo.getOptionsPSO(opt);
-
-            % Initialization of the population
-            [ParSwarm, OptSwarm, ToplOptSwarm] = OptAlgo.initChainPSO(FUNC, opt);
-
-%----------------------------------------------------------------------------------------
-
-% The main loop
-%----------------------------------------------------------------------------------------
-            for i = 1:opt.nsamples
-
-                % The evolution of the particles in PSO
-                [ParSwarm, OptSwarm, ToplOptSwarm] = OptAlgo.evolutionPSO ...
-                    (FUNC, ParSwarm, OptSwarm, ToplOptSwarm, i, opt);
-
-                % Abstract best information so far from the population and display it
-                yValue = OptSwarm(opt.Nchain+1, opt.Nparams+1);
-                xValue = OptAlgo.pTransfer('exp', OptSwarm(opt.Nchain+1, 1:opt.Nparams));
-
-                fprintf('Iter = %5d   ----------------  Minimum: %10.3g  ---------------- \n', i, yValue);
-                fprintf('%10.3g | ', xValue); fprintf('\n');
-
-                % convergence criterion
-                if mod(i, 5) == 0
-                    delta = std(ParSwarm(:, 1:opt.Nparams)) ./ mean(ParSwarm(:, 1:opt.Nparams));
-
-                    if all(abs(delta) < opt.criterion) || i == opt.nsamples
-                        maxIter = i;
-                        break
-                    end
-                end
-
-            end % for i = 1:opt.nsamples
-
-%----------------------------------------------------------------------------------------
-
-% Post-process
-%----------------------------------------------------------------------------------------
-            % Gather some useful information and store them in the debug mode
-            result.optTime        = etime(clock, startTime)/3600; % in hours
-            result.convergence    = delta;
-            result.correlation    = corrcoef(ParSwarm(:, 1:opt.Nparams));
-            result.Iteration      = maxIter;
-            result.xValue         = xValue;
-            result.yValue         = yValue;
-
-            fprintf('\n****************************************************** \n');
-            save(sprintf('result_%2d.mat',fix(rand*100)),'result');
-            fprintf('Time %5.3g hours elapsed after %5d iterations \n', result.optTime, result.Iteration);
-            fprintf('Objective value: %10.3g \n', yValue);
-            fprintf('Optimal set: ');
-            fprintf(' %g |', xValue);
-            fprintf('\nThe statistical information of PSO is stored as result.mat \n');
-            fprintf('****************************************************** \n');
-
-        end % Particle_Swarm_Optimization
-
-        function opt = getOptionsPSO(obj)
-% -----------------------------------------------------------------------------
-%  The parameters for the Optimizer
-%
-%  Return:
-%       - opt.
-%           + Nchain. The number of the candidates (particles)
-%           + Nparams. The number of the optimized parameters
-%           + bounds. The boundary limitation of the parameters
-%           + nsamples. The maximum number of algorithm's iteration
-%           + wMax; wMin. The boundary of the weight in PSO's formula
-%           + accelCoeff. The accelarate coefficients in PSO's formula
-%           + topology. The different schemes for the particles' communication
-%               * Ring Topology. Under this scheme, only the adjacent
-%                   particles exchange the information. So this is the slowest
-%                   scheme to transfer the best position among particles.
-%               * Random Topology. Under this scheme, the communication is
-%                   isolated a little bit. This is the intermediate one.
-%               * without Topology. Under this scheme, the the best position
-%                   around the population is going to transfer immediately to
-%                   the rest particles. This is the default one in the
-%                   literatures. However in this case, it will results in the
-%                   unmature convergence.
-% -----------------------------------------------------------------------------
-
-
-            opt = [];
-
-            opt.Nchain      = OptAlgo.swarm;
-            opt.Nparams     = length(obj.params);
-            opt.bounds      = OptAlgo.pTransfer('log', obj.paramBound);
-            opt.nsamples    = OptAlgo.sample;
-            opt.criterion   = 0.01;
-
-            % Check out the dimension of the set of parameters, and the boundary limitation
-            [row, col] = size(opt.Nparams);
-            if row > 1 || col > 1
-                error('OptAlgo.getOptionsPSO: The initialized dimension of the parameter set might be wrong \n');
-            end
-
-            [row, col] = size(opt.bounds);
-            if row ~= opt.Nparams || col ~= 2
-                error('OptAlgo.getOptionsPSO: Please check your setup of the range of parameters \n');
-            end
-
-            if mod(opt.nsamples, 5) ~= 0
-                error('OptAlgo.getOptionsPSO: Please let the maximum interation be divisible to 5 \n');
-            end
-
-            % Those are the specific parameters for the PSO algorithm
-            opt.wMax           = 0.9;
-            opt.wMin           = 0.4;
-            opt.accelCoeff     = [0.6, 0.4];
-            opt.topology       = 'Random'; % Null; Ring
-            opt.randCount      = int32(opt.Nchain * 0.6);
-
-        end % getOptionsPSO
-
-        function [ParSwarm, OptSwarm, ToplOptSwarm] = initChainPSO(FUNC, opt)
-% -----------------------------------------------------------------------------
-% The initilization of the population
-%
-% Parameter:
-%       - opt.
-%           + Nchain. The number of the candidates (particles)
-%           + Nparams. The number of the optimized parameters
-%           + bounds. The boundary limitation of the parameters
-%           + nsamples. The maximum number of algorithm's iteration
-%           + wMax; wMin. The boundary of the weight in PSO's formula
-%           + accelCoeff. The accelarate coefficients in PSO's formula
-%           + topology. The different schemes for the particles' communication
-%               * Ring. Under this scheme, only the adjacent
-%                   particles exchange the information. So this is the slowest
-%                   scheme to transfer the best position among particles.
-%               * Random. Under this scheme, the communication is
-%                   isolated a little bit. This is the intermediate one.
-%               * Null. Under this scheme, the the best position
-%                   around the population is going to transfer immediately to
-%                   the rest particles. This is the default one in the
-%                   literatures. However in this case, it will results in the
-%                   unmature convergence.
-%
-%  Return:
-%       - ParSwarm. The swarm of the particles, correspondingly the objective value
-%       - OptSwarm. The local optima that each particle ever encountered
-%       - ToplOptSwarm. The global optima that is shared by the rest particles.
-% -----------------------------------------------------------------------------
-
-
-            if nargout < 2
-                error('OptAlgo.initChainPSO: There are not enough output \n');
-            end
-
-            % Initilization of the parameters, and velocity of parameters
-            ParSwarm = rand(opt.Nchain, 2*opt.Nparams+1);
-
-            % Use vectorization to speed up. Keep the parameters in the domain
-            ParSwarm(:, 1:opt.Nparams) = repmat(opt.bounds(:,1)', opt.Nchain, 1) + ...
-                ParSwarm(:, 1:opt.Nparams) .* repmat( (opt.bounds(:,2) - opt.bounds(:,1))', opt.Nchain, 1 );
-
-            % Simulation of the sampled points
-            ParSwarm(:, 2*opt.Nparams+1) = arrayfun( @(idx) feval( FUNC, ...
-                OptAlgo.pTransfer('exp', ParSwarm(idx, 1:opt.Nparams)) ), 1:opt.Nchain );
-
-            % The statistics of the population
-            OptSwarm = zeros(opt.Nchain+1, opt.Nparams+1);
-            [minValue, minRow] = min(ParSwarm(:, 2*opt.Nparams+1));
-
-            OptSwarm(1:opt.Nchain, 1:opt.Nparams) = ParSwarm(1:opt.Nchain, 1:opt.Nparams);
-            OptSwarm(1:opt.Nchain, opt.Nparams+1) = ParSwarm(1:opt.Nchain, 2*opt.Nparams+1);
-            OptSwarm(opt.Nchain+1, 1:opt.Nparams) = ParSwarm(minRow, 1:opt.Nparams);
-            OptSwarm(opt.Nchain+1, opt.Nparams+1) = minValue;
-
-            ToplOptSwarm = OptSwarm(1:opt.Nchain, 1:opt.Nparams);
-
-        end % initChainPSO
-
-        function [ParSwarm, OptSwarm, ToplOptSwarm] = evolutionPSO(FUNC, ParSwarm, OptSwarm, ToplOptSwarm, iter, opt)
-% -----------------------------------------------------------------------------
-% The evolution of particles, according to the local optima and the global optima.
-%
-% Parameters:
-%       - ParSwarm. The swarm of the particles, correspondingly the objective value
-%       - OptSwarm. The local optima that each particle ever encountered
-%       - ToplOptSwarm. The global optima that is shared by the rest particles.
-%       - iter. The iteration number in the main loop
-%       - opt. Please see the comments of the function, initChainPSO
-%
-% Return:
-%       - ParSwarm. The swarm of the particles, correspondingly the objective value
-%       - OptSwarm. The local optima that each particle ever encountered
-%       - ToplOptSwarm. The global optima that is shared by the rest particles.
-% -----------------------------------------------------------------------------
-
-
-            if nargin < 6
-                error('OptAlgo.evolutionPSO: There are no enough input arguments \n')
-            end
-
-            if nargout ~= 3
-                error('OptAlgo.evolutionPSO: There are no enough output arguments \n')
-            end
-
-            R = opt.Nchain;
-            C = opt.Nparams;
-
-            % Different strategies of the construction of the weight
-            weight = opt.wMax - iter * ((opt.wMax - opt.wMin) / opt.nsamples);
-%            weight = 0.7;
-%            weight = (opt.wMax - opt.wMin) * (iter / opt.nsamples)^2 ...
-%                + (opt.wMin - opt.wMax) * (2 * iter / opt.nsamples) + opt.wMax;
-%            weight = opt.wMin * (opt.wMax / opt.wMin)^(1 / (1 + 10 * iter / opt.nsamples));
-
-            % The difference of current position and the best position the particle has encountered
-            LocalOptDiff = OptSwarm(1:R, 1:C) - ParSwarm(1:R, 1:C);
-
-            % The difference of current position and the best position the swarm has encountered
-            if strcmp(opt.topology, 'Null')
-                GlobalOptDiff = OptSwarm(R+1, 1:C) - ParSwarm(:, 1:C);
-            elseif strcmp(opt.topology, 'Random') || strcmp(opt.topology, 'Ring')
-                GlobalOptDiff = ToplOptSwarm(:, 1:C) - ParSwarm(:, 1:C);
-            end
-
-            % The evolution of the velocity matrix, according to LocalOptDiff and GlobalOptDiff
-%            TempVelocity = weight .* ParSwarm(:,C+1:2*C) + ...
-%               opt.accelCoeff(1) * unifrnd(0,1.0) .* LocalOptDiff + ...
-%               opt.accelCoeff(2) * unifrnd(0,1.0) .* GlobalOptDiff;
-            ParSwarm(:, C+1:2*C) = weight .* ParSwarm(:, C+1:2*C) + ...
-                opt.accelCoeff(1) .* LocalOptDiff + opt.accelCoeff(2) .* GlobalOptDiff;
-
-            % The evolution of the current positions, according to the Velocity and the step size
-            stepSize = 1; % stepSize = 0.729;
-            ParSwarm(:, 1:C) = ParSwarm(:, 1:C) + stepSize .* ParSwarm(:, C+1:2*C);
-
-            % Check the boundary limitation
-            loBound = repmat(opt.bounds(:,1)', R, 1);
-            upBound = repmat(opt.bounds(:,2)', R, 1);
-            ParSwarm(ParSwarm(:, 1:C) < loBound) = loBound(ParSwarm(:, 1:C) < loBound);
-            ParSwarm(ParSwarm(:, 1:C) > upBound) = upBound(ParSwarm(:, 1:C) > upBound);
-
-            % Simulation of the sampled points
-            ParSwarm(:, 2*C+1) = arrayfun( @(idx) feval( FUNC, ...
-                OptAlgo.pTransfer('exp', ParSwarm(idx, 1:C)) ), 1:R );
-
-            % Update the LocalOpt for each particle
-            OptSwarm(ParSwarm(:, 2*C+1) < OptSwarm(1:R, C+1), 1:C) = ParSwarm(ParSwarm(:, 2*C+1) < OptSwarm(1:R, C+1), 1:C);
-            OptSwarm(ParSwarm(:, 2*C+1) < OptSwarm(1:R, C+1), C+1) = ParSwarm(ParSwarm(:, 2*C+1) < OptSwarm(1:R, C+1), 2*C+1);
-
-            for row = 1:R
-
-                % Update the GlobalOpt around the whole group
-                if strcmp(opt.topology, 'Random')
-
-                    for i = 1:opt.randCount
-                        rowtemp = randi(R, 1);
-
-                        if OptSwarm(row, C+1) > OptSwarm(rowtemp, C+1)
-                            minrow = rowtemp;
-                        else
-                            minrow = row;
-                        end
-                    end
-
-                    ToplOptSwarm(row,:) = OptSwarm(minrow, 1:C);
-
-                elseif strcmp(opt.topology, 'Ring')
-
-                    if row == 1
-                        ValTemp2 = OptSwarm(R, C+1);
-                    else
-                        ValTemp2 = OptSwarm(row-1, C+1);
-                    end
-
-                    if row == R
-                        ValTemp3 = OptSwarm(1, C+1);
-                    else
-                        ValTemp3 = OptSwarm(row+1, C+1);
-                    end
-
-                    [~, mr] = sort([ValTemp2, OptSwarm(row, C+1), ValTemp3]);
-                    if  mr(1) == 3
-                        if row == R
-                            minrow = 1;
-                        else
-                            minrow = row+1;
-                        end
-                    elseif mr(1) == 2
-                        minrow = row;
-                    else
-                        if row == 1
-                            minrow = R;
-                        else
-                            minrow = row-1;
-                        end
-                    end
-
-                    ToplOptSwarm(row,:) = OptSwarm(minrow, 1:C);
-
-                end % if strcmp(opt.topology)
-
-            end % for row = 1:R
-
-            % Statistics
-            [minValue, minRow] = min(OptSwarm(:, C+1));
-
-            OptSwarm(R+1, 1:C) = OptSwarm(minRow, 1:C);
-            OptSwarm(R+1, C+1) = minValue;
-
-        end % evolutionPSO
-
-
-    end % PSO
-
-
-%	MCMC
     methods (Static = true, Access = 'public')
 
         function [xValue, yValue] = Markov_Chain_Monte_Carlo(FUNC, opt)
@@ -756,8 +110,13 @@ classdef OptAlgo < handle
                 newSS = feval( FUNC, OptAlgo.pTransfer('exp', newpar) );
 
                 % The Metropolis probability
-                rho12 = exp( -0.5 *( (newSS - SS) / sigmaSqu + ...
-                    OptAlgo.priorPDF(newpar) - OptAlgo.priorPDF(oldpar) ) );
+                if OptAlgo.logScale
+                    rho12 = exp( -0.5 *((newSS - SS) / sigmaSqu) + sum(newpar) - sum(oldpar) ) * ...
+                        OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(oldpar);
+                else
+                    rho12 = exp( -0.5 * (newSS - SS) / sigmaSqu ) * ...
+                        OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(oldpar);
+                end
 
                 % The new proposal is accepted with Metropolis probability
                 if rand <= min(1, rho12)
@@ -781,25 +140,39 @@ classdef OptAlgo < handle
                     % Calculate the objective value of the new proposal
                     newSS2 = feval( FUNC, OptAlgo.pTransfer('exp', newpar2) );
 
-                    % The conventional version of calculation
-                    rho32 = exp( -0.5 *( (newSS - newSS2) / sigmaSqu + ...
-                        OptAlgo.priorPDF(newpar) - OptAlgo.priorPDF(newpar2) ) );
+                    if OptAlgo.logScale
 
-%                    q2 = exp( -0.5 *( (newSS2 - SS) / sigmaSqu + ...
-%                        OptAlgo.priorPDF(newpar2) - OptAlgo.priorPDF(oldpar) ) );
-%                    q1 = exp( -0.5 * (norm((newpar2 - newpar) * inv(R))^2 - norm((oldpar - newpar) * inv(R))^2) );
+                        rho32 = exp( -0.5 *((newSS - newSS2) / sigmaSqu) + sum(newpar) - sum(newpar2) ) * ...
+                            OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(newpar2);
 
-%                    if rho32 == Inf
-%                        rho13 = 0;
-%                    else
-%                        rho13 = q1 * q2 * (1-rho32) / (1-rho12);
-%                    end
+                        % The conventional version of calculation
+%                        q2 = exp( -0.5 *((newSS2 - SS) / sigmaSqu) + sum(newpar2) - sum(oldpar) ) * ...
+%                            OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
+%                        q1 = exp( -0.5 * (norm((newpar2 - newpar) * inv(R))^2 - norm((oldpar - newpar) * inv(R))^2) );
 
-                    % The speed-up version of above calculation
-                    q1q2 = exp( -0.5 *( (newSS2 - SS) / sigmaSqu + ...
-                        ( (newpar2 - newpar) * (R \ (R' \ (newpar2' - newpar'))) - ...
-                        (oldpar - newpar) * (R \ (R' \ (oldpar' - newpar'))) ) + ...
-                        OptAlgo.priorPDF(newpar2) - OptAlgo.priorPDF(oldpar) ) );
+                        % The speed-up version of above calculation
+                        q1q2 = exp( -0.5 *( (newSS2 - SS) / sigmaSqu + ...
+                            (newpar2 - newpar) * (R \ (R' \ (newpar2' - newpar'))) - ...
+                            (oldpar - newpar) * (R \ (R' \ (oldpar' - newpar'))) ) + ...
+                            sum(newpar2) - sum(oldpar) ) * OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
+
+                    else
+
+                        rho32 = exp( -0.5 * (newSS - newSS2) / sigmaSqu ) * ...
+                            OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(newpar2);
+
+                        % The conventional version of calculation
+%                        q2 = exp( -0.5 * (newSS2 - SS) / sigmaSqu ) * ...
+%                            OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
+%                        q1 = exp( -0.5 * (norm((newpar2 - newpar) * inv(R))^2 - norm((oldpar - newpar) * inv(R))^2) );
+
+                        % The speed-up version of above calculation
+                        q1q2 = exp( -0.5 *( (newSS2 - SS) / sigmaSqu + ...
+                            (newpar2 - newpar) * (R \ (R' \ (newpar2' - newpar'))) - ...
+                            (oldpar - newpar) * (R \ (R' \ (oldpar' - newpar'))) ) ) * ...
+                            OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
+
+                    end
 
                     rho13 = q1q2 * (1 - rho32) / (1 - rho12);
 
@@ -855,6 +228,8 @@ classdef OptAlgo < handle
                 sigmaSqu  = 1 / OptAlgo.GammarDistribution( 1, 1, (n0 + opt.nDataPoint)/2,...
                     2 / (n0 * sigmaSqu_0 + sumSquare) );
 
+                save('sigmaSqu.dat', 'sigmaSqu', '-ascii', '-append');
+
             end % for j = 1:opt.nsamples
 
 %------------------------------------------------------------------------------
@@ -879,6 +254,7 @@ classdef OptAlgo < handle
             result.accepted        = fix(accepted/maxIter * 100);
             result.xValue          = xValue;
             result.yValue          = yValue;
+            result.sigma           = sqrt(sigmaSqu);
 
             fprintf('\n****************************************************** \n');
             save(sprintf('result_%2d.mat', fix(rand*100)), 'result');
@@ -969,8 +345,7 @@ classdef OptAlgo < handle
 
         function [R, oldpar, SS] = burnInSamples(FUNC, opt)
 %------------------------------------------------------------------------------
-% The routine that is used for generating samples in cases that Jocabian matrix
-% is not available
+% It is used for generating samples when Jocabian matrix is not available
 %------------------------------------------------------------------------------
 
 
@@ -1007,6 +382,99 @@ classdef OptAlgo < handle
             R = chol( chaincov + eye(opt.Nparams) * 1e-7 );
 
         end % burnInSamples
+
+        function [xcov, xmean, wsum] = covUpdate(x, w, oldcov, oldmean, oldwsum)
+%------------------------------------------------------------------------------
+% Recursive update the covariance matrix
+%------------------------------------------------------------------------------
+
+
+            [n, p] = size(x);
+
+            if n == 0
+                xcov = oldcov;
+                xmean = oldmean;
+                wsum = oldwsum;
+                return
+            end
+
+            if nargin < 2 || isempty(w)
+                w = 1;
+            end
+
+            if length(w) == 1
+                w = ones(n,1) * w;
+            end
+
+            if nargin > 2 && ~isempty(oldcov)
+
+                for i = 1:n
+                    xi     = x(i,:);
+                    wsum   = w(i);
+                    xmeann = xi;
+                    xmean  = oldmean + wsum / (wsum + oldwsum) * (xmeann - oldmean);
+
+                    xcov =  oldcov + wsum ./ (wsum + oldwsum - 1) .* (oldwsum / (wsum + oldwsum) ...
+                        .* ((xi - oldmean)' * (xi - oldmean)) - oldcov);
+                    wsum    = wsum + oldwsum;
+                    oldcov  = xcov;
+                    oldmean = xmean;
+                    oldwsum = wsum;
+                end
+
+            else
+
+                wsum  = sum(w);
+                xmean = zeros(1,p);
+                xcov  = zeros(p,p);
+
+                for i = 1:p
+                    xmean(i) = sum(x(:,i) .* w) ./ wsum;
+                end
+
+                if wsum > 1
+                    for i = 1:p
+                        for j = 1:i
+                            xcov(i,j) = (x(:,i) - xmean(i))' * ((x(:,j) - xmean(j)) .* w) ./ (wsum - 1);
+                            if (i ~= j)
+                                xcov(j,i) = xcov(i,j);
+                            end
+                        end
+                    end
+                end
+
+            end
+
+        end % covUpdate
+
+        function Population = conversionDataMCMC(maxIter, opt)
+%------------------------------------------------------------------------------
+% Load and convert the data in ascii format to the mat format
+% then generate the population for statistics
+%------------------------------------------------------------------------------
+
+
+            if nargin < 2
+                error('OptAlgo.conversionDataMCMC: There are no enough input arguments \n');
+            end
+
+            load('chainData.dat');
+
+            % Discard the former 50% chain, retain only the last 50%
+            if maxIter < opt.nsamples + opt.burn_in
+                idx = floor(0.5 * maxIter);
+            else
+                idx = floor(0.5 * (opt.nsamples + opt.burn_in));
+            end
+
+            if idx < length(chainData), idx = 0; end
+
+            eval(sprintf('chainData(1:idx, :) = [];'));
+            Population = chainData;
+
+            save('population.dat', 'Population', '-ascii');
+
+        end % conversionDataMCMC
 
         function z = Geweke(chain, a, b)
 %------------------------------------------------------------------------------
@@ -1105,462 +573,11 @@ classdef OptAlgo < handle
 
         end % spectrum
 
-        function [xcov, xmean, wsum] = covUpdate(x, w, oldcov, oldmean, oldwsum)
-%------------------------------------------------------------------------------
-% Recursive update the covariance matrix
-%------------------------------------------------------------------------------
+    end % MCMC
 
 
-            [n, p] = size(x);
-
-            if n == 0
-                xcov = oldcov;
-                xmean = oldmean;
-                wsum = oldwsum;
-                return
-            end
-
-            if nargin < 2 || isempty(w)
-                w = 1;
-            end
-
-            if length(w) == 1
-                w = ones(n,1) * w;
-            end
-
-            if nargin > 2 && ~isempty(oldcov)
-
-                for i = 1:n
-                    xi     = x(i,:);
-                    wsum   = w(i);
-                    xmeann = xi;
-                    xmean  = oldmean + wsum / (wsum + oldwsum) * (xmeann - oldmean);
-
-                    xcov =  oldcov + wsum ./ (wsum + oldwsum - 1) .* (oldwsum / (wsum + oldwsum) ...
-                        .* ((xi - oldmean)' * (xi - oldmean)) - oldcov);
-                    wsum    = wsum + oldwsum;
-                    oldcov  = xcov;
-                    oldmean = xmean;
-                    oldwsum = wsum;
-                end
-
-            else
-
-                wsum  = sum(w);
-                xmean = zeros(1,p);
-                xcov  = zeros(p,p);
-
-                for i = 1:p
-                    xmean(i) = sum(x(:,i) .* w) ./ wsum;
-                end
-
-                if wsum > 1
-                    for i = 1:p
-                        for j = 1:i
-                            xcov(i,j) = (x(:,i) - xmean(i))' * ((x(:,j) - xmean(j)) .* w) ./ (wsum - 1);
-                            if (i ~= j)
-                                xcov(j,i) = xcov(i,j);
-                            end
-                        end
-                    end
-                end
-
-            end
-
-        end % covUpdate
-
-        function Population = conversionDataMCMC(maxIter, opt)
-%------------------------------------------------------------------------------
-% Load and convert the data in ascii format to the mat format
-% then generate the population for statistics
-%------------------------------------------------------------------------------
-
-
-            if nargin < 2
-                error('OptAlgo.conversionDataMCMC: There are no enough input arguments \n');
-            end
-
-            load('chainData.dat');
-
-            % Discard the former 50% chain, retain only the last 50%
-            if maxIter < opt.nsamples + opt.burn_in
-                idx = floor(0.5 * maxIter);
-            else
-                idx = floor(0.5 * (opt.nsamples + opt.burn_in));
-            end
-
-            if idx < length(chainData), idx = 0; end
-
-            eval(sprintf('chainData(1:idx, :) = [];'));
-            Population = chainData;
-
-            save('population.dat', 'Population', '-ascii');
-
-        end % conversionDataMCMC
-
-
-	end % MCMC
-
-
-%   MADE
+%   Miscellaneous
     methods (Static = true, Access = 'public')
-
-        function [xValue, yValue] = Metropolis_Adjusted_Differential_Evolution(FUNC, opt)
-% -----------------------------------------------------------------------------
-% Metropolis Adjusted Differential Evolution algorithm (MADE)
-%
-% MADE optimizes a problem by combining the prominent features of Metropolis
-% Hastings algorithm and Differential Evolution algorithm. In the upper level,
-% each chain is accepted with the Metropolis probability, while in the lower
-% level, chains have an evolution with resort to heuristic method, Differential
-% Evolution algorithm.
-%
-% Unlike algorithms, PSO and DE, the MADE obtain the parameter distributions
-% rather than the single parameter set. It provides the confidential intervals
-% for each parameter, since it is based on the Markov Chain Monte Carlo (MCMC).
-%
-% Parameter:
-%       - FUNC. The objective function from your field
-%
-% Returns:
-%       - xValue. The optimal parameter set
-%       - yValue. The value of objective function with optimal parameter set
-% -----------------------------------------------------------------------------
-
-
-            startTime = clock;
-
-            if nargin < 2
-                error('OptAlgo.MADE: There are no enough input arguments \n');
-            end
-
-            % Get the sampler options
-            opt = OptAlgo.getOptionsMADE(opt);
-
-            % Preallocation
-            accepted = 0; n0 = 1;
-            chain = zeros(opt.Nchain, opt.Nparams+1, opt.nsamples);
-
-            % Initialization of the chains
-            states = OptAlgo.initChainMADE(FUNC, opt);
-
-            % Calculate the initial sigma square values
-            sumSquare = states(:, opt.Nparams+1);
-            if any(sumSquare < 0)
-                sumSquare(sumSquare < 0) = exp( sumSquare(sumSquare < 0) );
-            end
-            sigmaSqu = sumSquare ./ (opt.nDataPoint - opt.Nparams);
-            sigmaSqu_0 = sigmaSqu;
-
-%-----------------------------------------------------------------------------------------
-
-% The main loop
-%-----------------------------------------------------------------------------------------
-            for i = 1:opt.nsamples
-
-                fprintf('Iter: %4d ----- accept_ratio: %3d%%', i, fix(accepted/(opt.Nchain*i)*100));
-
-                [states, accepted] = OptAlgo.samplerMADE(FUNC, states, sigmaSqu, accepted, opt);
-
-                % Append the newest states to the end of the 3-D matrix
-                chain(:,:,i) = states;
-                for j = 1:opt.Nchain
-                    temp = states(j, :);
-                    save(sprintf('chainData_%d.dat', j), 'temp', '-ascii', '-append');
-                end
-
-                % In each opt.convergInt interval, check the convergence condition
-                if mod(i, opt.convergInt) == 0 && i >= opt.convergInt
-                    criterion = OptAlgo.GelmanR(i, chain(:,:,1:i), opt);
-
-                    if all(criterion < opt.criterion) || i == opt.nsamples
-                        maxIter = i;
-                        break
-                    end
-                end
-
-                % Variance of error distribution (sigma) was treated as a parameter to be estimated.
-                sumSquare = states(:, opt.Nparams+1);
-                if any(sumSquare < 0)
-                    sumSquare(sumSquare < 0) = exp( sumSquare(sumSquare < 0) );
-                end
-
-                % Gammar distribution for sigma evolution
-                for k = 1:opt.Nchain
-                    sigmaSqu(k)  = 1 ./ OptAlgo.GammarDistribution(1, 1, (n0 + opt.nDataPoint)/2, ...
-                        2 / (n0 * sigmaSqu_0(k) + sumSquare(k)));
-                end
-
-            end % for i=1:opt.nsamples
-
-%-----------------------------------------------------------------------------------------
-
-% Post-process
-%-----------------------------------------------------------------------------------------
-            clear chain;
-
-            % Generate the population for figure plot
-            Population = OptAlgo.conversionDataMADE(maxIter, opt);
-
-            % Plot the population
-            OptAlgo.FigurePlot(Population, opt);
-
-            [yValue, row]  = min(Population(:, opt.Nparams+1));
-            xValue = OptAlgo.pTransfer('exp', Population(row, 1:opt.Nparams));
-
-            % Gather some useful information and store them
-            result.optTime        = etime(clock, startTime)/3600;
-            result.Iteration      = maxIter;
-            result.criterion      = criterion;
-            result.accepted       = fix( accepted / (opt.Nchain * maxIter) * 100 );
-            result.Nchain         = opt.Nchain;
-            result.correlation    = corrcoef(Population(:, 1:opt.Nparams));
-            result.population     = Population;
-            result.xValue         = xValue;
-            result.yValue         = yValue;
-
-            fprintf('\n****************************************************** \n');
-            save(sprintf('result_%2d.mat', fix(rand*100)), 'result');
-            fprintf('Time %5.3g hours elapsed after %5d iterations \n', result.optTime, result.Iteration);
-            fprintf('The minimal objective value found during sampling is: %10.3g \n', yValue);
-            fprintf('The correspondingly optimal set is: ');
-            fprintf(' %g |', xValue);
-            fprintf('\nThe statistical information of MADE is stored as result.mat \n');
-            fprintf('The historical chain of MADE is stored as Population.dat \n');
-            fprintf('****************************************************** \n');
-
-        end % Metropolis_Adjusted_Differential_Evolution
-
-        function opt = getOptionsMADE(obj)
-% -----------------------------------------------------------------------------
-%  The parameters for the Optimizer
-%
-%  Return:
-%       - opt.
-%           + Nchain. The number of the candidates (particles)
-%           + Nparams. The number of the optimized parameters
-%           + bounds. The boundary limitation of the parameters
-%           + nsamples. The maximum number of algorithm's iteration
-%           + crossProb. The cross-over probability in DE's formula
-%           + weight. The weight coefficients in DE's formula
-%           + strategy. There are 1,2,3,4,5,6 strategies in DE algorithm to
-%               deal with the cross-over and mutation. As for detais, we
-%               will refer your the original paper of Storn and Price
-% -----------------------------------------------------------------------------
-
-
-            opt = [];
-
-            opt.Nchain        = OptAlgo.swarm;
-            opt.Nparams       = length(obj.params);
-            opt.bounds        = OptAlgo.pTransfer('log', obj.paramBound)';
-            opt.nsamples      = OptAlgo.sample;
-            opt.criterion     = 1.01;
-            opt.convergInt    = 100;
-            opt.nDataPoint    = OptAlgo.dataPoint;
-
-            % Check out the dimension of the set of parameters, and the boundary limitation
-            [row, col] = size(opt.Nparams);
-            if row > 1 || col > 1
-                error('OptAlgo.getOptionsMADE: The initialized dimension of the set of parameters might be wrong \n');
-            end
-
-            [row, col] = size(opt.bounds);
-            if col ~= opt.Nparams || row ~= 2
-                error('OptAlgo.getOptionsMADE: Please check your setup of the range of parameters \n');
-            end
-
-            % Those are the specific parameters for the DE kernel
-            opt.crossProb     = 0.5;
-            opt.weight        = 0.3;
-            opt.strategy      = 5;
-
-        end % getOptionsMADE
-
-        function initChain = initChainMADE(FUNC, opt)
-% -----------------------------------------------------------------------------
-% The initilization of the chains
-%
-%  Parameter:
-%       - opt.
-%           + Nchain. The number of the candidates (particles)
-%           + Nparams. The number of the optimized parameters
-%           + bounds. The boundary limitation of the parameters
-%           + nsamples. The maximum number of algorithm's iteration
-%           + crossProb. The cross-over probability in DE's formula
-%           + weight. The weight coefficients in DE's formula
-%           + strategy. There are 1,2,3,4,5,6 strategies in DE algorithm to
-%               deal with the cross-over and mutation. As for detais, we
-%               will refer your the original paper of Storn and Price
-%
-% Return:
-%       - Population. The population of the particles, correspondingly the objective value
-%       - OptPopul. The best fit found among the population.
-% -----------------------------------------------------------------------------
-
-
-            if nargin < 2
-                error('OptAlgo.initChainMADE: There are no enough input arguments \n');
-            end
-
-            % Initilization of the chains
-            initChain = rand(opt.Nchain, opt.Nparams+1);
-
-            % Keep the parameters in the domain
-            initChain(:, 1:opt.Nparams) = repmat( opt.bounds(1,:), opt.Nchain, 1 ) + ...
-                initChain(:, 1:opt.Nparams) .* repmat( (opt.bounds(2,:) - opt.bounds(1,:)), opt.Nchain, 1 );
-
-            % Simulation of the sampled points
-            initChain(:, opt.Nparams+1) = arrayfun( @(idx) feval( FUNC, ...
-                OptAlgo.pTransfer('exp', initChain(idx, 1:opt.Nparams)) ), 1:opt.Nchain);
-
-        end % initChainMADE
-
-        function [states, accepted] = samplerMADE(FUNC, states, sigmaSqu, accepted, opt)
-%-----------------------------------------------------------------------------------------
-% The DE sampler for the Metropolis adjusted differential evolution method
-%-----------------------------------------------------------------------------------------
-
-
-            if nargin < 5
-                error('OptAlgo.samplerMADE: There are no enough input arguments \n');
-            end
-
-            % The evolution of the chains with DE kernel
-            [temp, OptPopul] = OptAlgo.evolutionMADE(states, opt);
-
-            % Plot the best objective value and parameter set
-            fprintf('----------------  Minimum: %g  ---------------- \n', OptPopul(opt.Nchain+1, opt.Nparams+1));
-            fprintf('%10.3g | ', OptAlgo.pTransfer('exp', OptPopul(1, 1:opt.Nparams))); fprintf('\n');
-
-            % In each chain, the proposal point is accepted in terms of the Metropolis probability
-            for j = 1:opt.Nchain
-
-                SS = states(j, opt.Nparams+1);
-
-                proposal = temp(j, 1:opt.Nparams);
-
-                if any(proposal < opt.bounds(1,:)) || any(proposal > opt.bounds(2,:))
-                    newSS = Inf;
-                else
-                    newSS = feval( FUNC, OptAlgo.pTransfer('exp', proposal) );
-                end
-
-                rho = exp( -0.5 *( (newSS - SS) / sigmaSqu(j) + ...
-                    OptAlgo.priorPDF(proposal) - OptAlgo.priorPDF(states(j, 1:opt.Nparams)) ) );
-
-                if rand <= min(1, rho)
-                    states(j, 1:opt.Nparams) = proposal;
-                    states(j, opt.Nparams+1) = newSS;
-                    accepted = accepted + 1;
-                end
-
-            end % for j = 1:opt.Nchain
-
-        end % samplerMADE
-
-        function [tempPop, OptPopul] = evolutionMADE(Population, opt)
-% -----------------------------------------------------------------------------
-% The evolution of population
-%
-% Parameters:
-%       - Population. The population of the particles, correspondingly the objective value
-%       - OptPopul. The best fit found among the population.
-%       - opt. Please see the comments of the function, initChainDE
-%
-% Return:
-%       - Population. The population of the particles, correspondingly the objective value
-%       - OptPopul. The best fit found among the population.
-% -----------------------------------------------------------------------------
-
-
-            if nargin < 2
-                error('OptAlgo.evolutionMADE: There are no enough input arguments \n');
-            end
-
-            R = opt.Nchain;
-            C = opt.Nparams;
-            OptPopul = zeros(R+1, C+1);
-
-            [minValue, row] = min(Population(:, opt.Nparams+1));
-
-            OptPopul(R+1, C+1) = minValue;
-            OptPopul(1:R, 1:C) = repmat( Population(row, 1:C), R, 1 );
-            clear row;
-
-            indexArray = (0:1:R-1);
-            index = randperm(4);
-
-            cr_mutation = rand(R, C) < opt.crossProb;
-            cr_old = cr_mutation < 0.5;
-
-            ShuffRow1 = randperm(R);
-            PopMutR1 = Population(ShuffRow1, 1:C);
-
-            idxShuff = rem(indexArray + index(1), R);
-            ShuffRow2 = ShuffRow1(idxShuff + 1);
-            PopMutR2 = Population(ShuffRow2, 1:C);
-
-            idxShuff = rem(indexArray + index(2), R);
-            ShuffRow3 = ShuffRow2(idxShuff + 1);
-            PopMutR3 = Population(ShuffRow3, 1:C);
-
-            idxShuff = rem(indexArray + index(3), R);
-            ShuffRow4 = ShuffRow3(idxShuff + 1);
-            PopMutR4 = Population(ShuffRow4, 1:C);
-
-            idxShuff = rem(indexArray + index(4), R);
-            ShuffRow5 = ShuffRow4(idxShuff + 1);
-            PopMutR5 = Population(ShuffRow5, 1:C);
-
-            switch opt.strategy
-                case 1
-                % strategy 1
-                    tempPop = PopMutR3 + (PopMutR1 - PopMutR2) * opt.weight;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 2
-                % strategy 2
-                    tempPop = Population(1:R, 1:C) + opt.weight * (OptPopul(1:R, 1:C) - Population(1:R, 1:C)) + (PopMutR1 - PopMutR2) * opt.weight;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 3
-                % strategy 3
-                    tempPop = OptPopul(1:R, 1:C) + (PopMutR1 - PopMutR2) .* ((1 -0.9999) * rand(R, C) + opt.weight);
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 4
-                % strategy 4
-                    f1 = (1-opt.weight) * rand(R, 1) + opt.weight;
-                    PopMutR5 = repmat(f1, 1, C);
-
-                    tempPop = PopMutR3 + (PopMutR1 - PopMutR2) .* PopMutR5;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 5
-                % strategy 5
-                    f1 = (1-opt.weight) * rand + opt.weight;
-                    tempPop = PopMutR3 + (PopMutR1 - PopMutR2) * f1;
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-
-                case 6
-                % strategy 6
-                    if (rand < 0.5)
-                        tempPop = PopMutR3 + (PopMutR1 - PopMutR2) * opt.weight;
-                    else
-                        tempPop = PopMutR3 + 0.5 * (opt.weight + 1.0) * (PopMutR1 + PopMutR2 - 2 * PopMutR3);
-                    end
-
-                    tempPop = Population(1:R, 1:C) .* cr_old + tempPop .* cr_mutation;
-            end
-
-            % Check the boundary limitation
-            loBound = repmat(opt.bounds(1,:), R, 1);
-            upBound = repmat(opt.bounds(2,:), R, 1);
-            tempPop(tempPop < loBound) = loBound(tempPop < loBound);
-            tempPop(tempPop > upBound) = upBound(tempPop > upBound);
-
-        end % evolutionMADE
 
         function y = GammarDistribution(m, n, a, b)
 %-----------------------------------------------------------------------------------------
@@ -1584,627 +601,46 @@ classdef OptAlgo < handle
             y = zeros(m, n);
             for j = 1:n
                 for i=1: m
-                    y(i, j) = OptAlgo.Gammar(a, b);
+                    y(i, j) = Gammar(a, b);
                 end
             end
 
-        end % GammerDistribution
+            function y = Gammar(a, b)
 
-        function y = Gammar(a, b)
-%-----------------------------------------------------------------------------------------
-%
-%-----------------------------------------------------------------------------------------
+                if a < 1
 
+                    y = Gammar(1+a, b) * rand(1) ^ (1/a);
 
-            if a < 1
+                else
 
-                y = OptAlgo.Gammar(1+a, b) * rand(1) ^ (1/a);
-
-            else
-
-                d = a - 1/3;
-                c = 1 / sqrt(9*d);
-
-                while(1)
+                    d = a - 1/3;
+                    c = 1 / sqrt(9*d);
 
                     while(1)
-                        x = randn(1);
-                        v = 1 + c*x;
 
-                        if v > 0, break, end
+                        while(1)
+                            x = randn(1);
+                            v = 1 + c*x;
 
-                    end
+                            if v > 0, break, end
 
-                    v = v^3; u = rand(1);
-
-                    if u < 1 - 0.0331*x^4, break, end
-
-                    if log(u) < 0.5 * x^2 + d * (1-v+log(v)), break, end
-
-                end
-
-                y = b * d * v;
-
-            end
-
-        end % Gammar
-
-        function criterion = GelmanR(idx, chain, opt)
-%-----------------------------------------------------------------------------------------
-% Stopping criterion
-%-----------------------------------------------------------------------------------------
-
-
-            if nargin < 3
-                error('OptAlgo.GelmanR: There are no enough input arguments \n');
-            end
-
-            % Split each chain into half and check all the resulting half-sequences
-            index           = floor(0.5 * idx);
-            eachChain       = zeros(index, opt.Nparams);
-            betweenMean     = zeros(opt.Nchain, opt.Nparams);
-            withinVariance  = zeros(opt.Nchain, opt.Nparams);
-
-            % Mean and variance of each half-sequence chain
-            for i = 1:opt.Nchain
-
-                for j = 1:opt.Nparams
-                    for k = 1:index
-                        eachChain(k,j) = chain(i,j,k+index);
-                    end
-                end
-
-                betweenMean(i,:)    = mean(eachChain);
-                withinVariance(i,:) = var(eachChain);
-
-            end
-
-            % Between-sequence variance
-            Sum = 0;
-            for i = 1:opt.Nchain
-               Sum = Sum + (betweenMean(i,:) - mean(betweenMean)) .^ 2;
-            end
-            B = Sum ./ (opt.Nchain-1);
-
-            % Within-sequence variance
-            Sum = 0;
-            for i = 1:opt.Nchain
-                Sum = Sum + withinVariance(i,:);
-            end
-            W = Sum ./ opt.Nchain;
-
-            % Convergence diagnostics
-            criterion = sqrt(1 + B ./ W);
-
-        end % GelmanR
-
-        function Population = conversionDataMADE(maxIter, opt)
-%------------------------------------------------------------------------------
-% Load and convert the data in ascii format to the mat format
-%   then generate the population for statistics
-%------------------------------------------------------------------------------
-
-
-            if nargin < 2
-                error('OptAlgo.conversionDataMADE: There are no enough input arguments \n');
-            end
-
-            chain = []; Population = [];
-
-            for i = 1:opt.Nchain
-
-                load(sprintf('chainData_%d.dat', i));
-
-                chain = [chain eval(sprintf('chainData_%d', i))];
-
-            end
-
-            save('chain.dat', 'chain', '-ascii');
-            for  j = 1:opt.Nchain
-                eval(sprintf('delete chainData_%d.dat',j));
-            end
-
-            % Discard the former 50% chain, retain only the last 50%
-            if maxIter < opt.nsamples
-                idx = floor(0.5 * maxIter);
-            else
-                idx = floor(0.5 * opt.nsamples);
-            end
-
-            if idx < length(chainData_1), idx = 0; end
-
-            for k = 1:opt.Nchain
-                eval(sprintf('chainData_%d(1:idx, :) = [];', k));
-                Population = [Population; eval(sprintf('chainData_%d', k))];
-            end
-
-            save('population.dat', 'Population', '-ascii');
-
-        end % conversionDataMADE
-
-
-    end % MADE
-
-
-%   PRIMAL
-    methods (Static = true, Access = 'public')
-
-        function [xValue, yValue] = Parallel_Riemann_Metropolis_Adjusted_Langevin(FUNC, opt)
-%------------------------------------------------------------------------------
-% Parallel tempering RIemannian manifold Metropolis Adjusted Langevin (PRIMAL)
-%
-% The Langevin algorithm is combined with Metropolis probability, which leads to
-% the MALA method in the literatures.
-% Riemann manifold is introduced into the MALA method to enhance the searching capacity
-% However, it still has the possibility to trap into local optima, so the parallel
-% tempering technique is employed to tackle the multi-variable optimization
-%
-% Returns:
-%       - xValue. The optimal parameter set
-%       - yValue. The value of objective function with optimal parameter set
-%------------------------------------------------------------------------------
-
-
-            global accepted;
-
-            startTime = clock;
-
-            if nargin < 2
-                error('OptAlgo.PRIMAL: There are no enough input arguments \n');
-            end
-
-            % Get the PRIMAL options
-            opt = OptAlgo.getOptionsPRIMAL(opt);
-
-            % Preallocation
-            accepted = 0; n0 = 1;
-            % The temperature matrix of the parallel tempering
-            Temperatures       = zeros(opt.nsamples, opt.Nchain);
-            Temperatures(:, 1) = ones(opt.nsamples, 1);
-            Temperatures(1, :) = opt.temperature;
-
-            chain = zeros(opt.Nchain, opt.Nparams+1, opt.nsamples);
-%            sigmaChain = zeros(opt.nsamples, opt.Nchain);
-
-            % Initialization
-            [states, MetricTensor] = OptAlgo.initChainPRIMAL((1./opt.temperature), opt);
-
-            % Calculate the initial sigma square values
-            sumSquare = states(:, opt.Nparams+1);
-            if any(sumSquare < 0)
-                sumSquare(sumSquare < 0) = exp( sumSquare(sumSquare < 0) );
-            end
-            sigmaSqu  = sumSquare/ (opt.nDataPoint - opt.Nparams);
-            sigmaSqu0 = sigmaSqu;
-
-%------------------------------------------------------------------------------
-
-% Main loop
-%------------------------------------------------------------------------------
-            for i = 1:(opt.nsamples+opt.burn_in)
-
-                if i > opt.burn_in
-                    fprintf('Iter: %3d ----- Accept_ratio: %2d%% ', i, fix(accepted/i*100));
-
-                    % Abstract best information so far from the population and display it
-                    [minValue, row] = min(states(1:opt.Nchain, opt.Nparams+1));
-
-                    fprintf('----------------  Minimum: %3g  ---------------- \n', minValue);
-                    fprintf('%10.3g | ', OptAlgo.pTransfer('exp', states(row, 1:opt.Nparams)) ); fprintf('\n');
-                end
-
-                % PRIMAL: Evolution of the chains
-                [states, MetricTensor] = OptAlgo.samplerPRIMAL(FUNC, states, MetricTensor, sigmaSqu, 1./Temperatures(i,:), opt);
-
-                % Store the chain after burn-in period
-                if i > opt.burn_in
-                    chain(:,:,i) = states;
-
-                    for j = 1:opt.Nchain
-                        temp = states(j, :);
-                        save(sprintf('chainData_%d.dat', j), 'temp', '-ascii', '-append');
-                    end
-                end
-
-                % Implement the chain swap
-                if mod(i, opt.swapInt) == 0
-                    states = OptAlgo.chainSwap(states, sigmaSqu, 1./Temperatures(i,:), opt);
-                end
-
-                % Each opt.convergInt interval, check the convergence diagnostics
-                if mod(i, opt.convergInt) == 0 && i >= opt.convergInt
-                    criterion = OptAlgo.GelmanR(i, chain(:,:,1:i), opt);
-
-                    if all(criterion < opt.criterion) || i == opt.nsamples
-                        maxIter = i;
-                        break
-                    end
-                end
-
-                % Variance of error distribution (sigma) was treated as a parameter to be estimated.
-                sumSquare = states(:, opt.Nparams+1);
-                if any(sumSquare < 0)
-                    sumSquare(sumSquare < 0) = exp( sumSquare(sumSquare < 0) );
-                end
-
-                % Gammar distribution for sigma evolution
-                for k = 1:opt.Nchain
-                    sigmaSqu(k)  = 1 ./ OptAlgo.GammarDistribution(1, 1, (n0 + opt.nDataPoint)/2, ...
-                        2 / (n0 * sigmaSqu0(k) + sumSquare(k)));
-%                    sigmaChain(i,k) = sigmaSqu(k)';
-                end
-
-                % Temperature dynamics
-                Temperatures = OptAlgo.tpDynamics(i, states, Temperatures, sigmaSqu, opt);
-
-            end  % for i = 1:opt.nsamples
-
-%------------------------------------------------------------------------------
-
-% Post-process
-%------------------------------------------------------------------------------
-            clear chain;
-
-            % Generate the population for figure plot
-            Population = OptAlgo.conversionDataPRIMAL(maxIter, opt);
-
-            % Plot the population
-            OptAlgo.FigurePlot(Population, opt)
-
-            [yValue, row] = min(Population(:,opt.Nparams+1));
-            xValue = OptAlgo.pTransfer('exp', Population(row,1:opt.Nparams));
-
-            % Gather some useful information and store them
-            result.optTime        = etime(clock, startTime)/3600;
-            result.Iteration      = maxIter;
-            result.criterion      = criterion;
-            result.accepted       = fix(accepted/maxIter*100);
-            result.NChain         = opt.Nchain;
-            result.Temperatures   = Temperatures(1:opt.nsamples, :);
-            result.correlation    = corrcoef(Population(1:opt.Nparams));
-            result.population     = Population;
-            result.xValue         = xValue;
-            result.yValue         = yValue;
-
-            fprintf('\n****************************************************** \n');
-            save(sprintf('result_%2d.mat', fix(rand*100)), 'result');
-            fprintf('Time %5.3g hours elapsed after %5d iterations \n', result.optTime, result.Iteration);
-            fprintf('The minimal objective value found during sampling is: %10.3g \n', yValue);
-            fprintf('The correspondingly optimal set is: ');
-            fprintf(' %g |', xValue);
-            fprintf('\nThe statistical information of MADE is stored as result.mat \n');
-            fprintf('The historical chain of MADE is stored as Population.dat \n');
-            fprintf('****************************************************** \n');
-
-        end % Parallel_Riemann_Metropolis_Adjusted_Langevin
-
-        function opt = getOptionsPRIMAL(obj)
-%------------------------------------------------------------------------------
-% The parameters for the optimizer
-%
-% Return:
-%       - opt.
-%           + temperature. The vector of the temperature of the parallel tempering
-%           + Nchain. The number of the candidates
-%           + Nparams. The number of the optimized parameters
-%           + nsamples. The length of the sampling chain
-%           + bounds. The boundary limitation of the sampling
-%           + burn_in. The burn-in period that is discarded
-%           + convergInt. The interval to check the convergence criterion
-%           + swapInt. The interval to swap the N chains when sampling
-%           + nDataPoint. The data point of the y
-%           + criterion. The stopping tolerance
-%           + epsilon. The epsilon value in the PRIMAL proposal formula
-%------------------------------------------------------------------------------
-
-
-            opt = [];
-
-            opt.temperature       = [1];
-            opt.Nchain            = length(opt.temperature);
-            opt.Nparams           = length(obj.params);
-            opt.nsamples          = OptAlgo.sample;
-            opt.bounds            = OptAlgo.pTransfer('log', obj.paramBound)';
-
-            opt.burn_in           = 0;
-            opt.convergInt        = 100;
-            opt.swapInt           = 100;
-            opt.nDataPoint        = OptAlgo.dataPoint;
-            opt.criterion         = 1.1;
-            opt.epsilon           = 1e-3;
-
-            if mod(opt.nsamples, opt.convergInt) ~= 0
-                error('OptAlgo.getOptionsPRIMAL: Please set the samples be devisible to the convergInt \n');
-            end
-
-            [row, col] = size(opt.Nparams);
-            if row > 1 || col > 1
-                error('OptAlgo.getOptionsPRIMAL: The initialized dimension of the parameter set might be wrong \n');
-            end
-
-            [row, col] = size(opt.bounds);
-            if col ~= opt.Nparams || row ~= 2
-                error('OptAlgo.getOptionsPRIMAL: Please check your setup of the range of parameters \n');
-            end
-
-        end % getOptionsPRIMAL
-
-        function [initChain, MetricTensor] = initChainPRIMAL(FUNC, Beta, opt)
-%------------------------------------------------------------------------------
-% Generate initial chains for the PRIMAL algorithm
-%
-% parameter:
-%       - Beta. The inverse of the temperature vector
-%       - opt. The options of the PRIMAL
-%
-% Return:
-%       - initChain. The Nchain x (Nparams+1) matrix
-%       - MetricTensor.
-%           + G. The Fisher information matrix (Metric tensor under Riemann manifold)
-%           + invG. The inverse of the metric tensor
-%           + GradL. The gradient of the log-density distribution L.
-%           + sqrtInvG. The inverse of the Fisher information matrix
-%------------------------------------------------------------------------------
-
-
-            if nargin < 3
-                error('OptAlgo.initChainPRIMAL: There are no enough input arguments \n');
-            end
-
-            % Initilization of the chains
-            initChain = rand(opt.Nchain, opt.Nparams+1);
-            MetricTensor = cell(1, opt.Nchain);
-
-            % Use vectorization to speed up. Keep the parameters in the domain
-            initChain(:, 1:opt.Nparams) = repmat(opt.bounds(1, :), opt.Nchain, 1) + ...
-                initChain(:, 1:opt.Nparams) .* repmat( (opt.bounds(2,:)-opt.bounds(1,:)), opt.Nchain, 1 );
-
-            for j = 1:opt.Nchain
-
-                % Simulation
-                [~, Res, Jac] = feval( FUNC, initChain(j, 1:opt.Nparams) );
-
-                initChain(j, opt.Nparams+1) = Res' * Res;
-                SigmaSqu = (initChain(j, opt.Nparams+1) / (opt.nDataPoint - opt.Nparams));
-
-                % Prepare the information for the PRIMAL proposal kernel
-                %   metric tensor G, gradient vector, square root of inverse G
-                G = Beta(j) .* (Jac' * (1/SigmaSqu) * Jac);
-                MetricTensor{j}.invG = pinv( G + eye(opt.Nparams)*1e-10 );
-
-                % square root of metrix invG = V * D * V'
-                [V, D] = eig(MetricTensor{j}.invG);
-                D = diag(D);
-                for k = 1:opt.Nparams
-                    if D(k) < 0
-                        error('OptAlgo.PRIMAL: negative eigenvalue of metrix invG \nSet logScale to true in PRIMAL\n')
-                    end
-                    D(k) = sqrt( D(k) );
-                end
-
-                % sqrt(invG) = V * sqrt(D) * V'
-                MetricTensor{j}.sqrtInvG = V * diag(D) * V';
-                MetricTensor{j}.GradL = - Jac' * Res / SigmaSqu;
-
-            end % for j = 1:opt.Nchain
-
-        end % initChainPRIMAL
-
-        function [states, MetricTensor] = samplerPRIMAL(states, MetricTensor, sigmaSqu, Beta, opt)
-%------------------------------------------------------------------------------
-% The Metropolis adjusted Langevin algorithms is used to generate new proposal
-%
-% Parameter:
-%       - states. The Nchain x (Nparams+1) matrix
-%       - MetricTensor. A struct that contains the Fisher information, gradient
-%           of the log-density distribution, inverse of the metric tensor
-%       - sigmaSqu. The sigma square matrix (the covariance matrix)
-%       - Beta. Inverse of the temperature vector in parallel tempering
-%       - opt. The PRIMAL options
-%
-% Return:
-%       - states. Same
-%       - MetricTensor. Same
-%------------------------------------------------------------------------------
-
-
-            if nargin < 6
-                error('OptAlgo.samplerPRIMAL: There are no enough input arguments \n');
-            end
-
-            global accepted;
-
-            for j = 1:opt.Nchain
-
-                % New proposal formula based on the Metropolis adjusted Langevin algorithm
-                proposal = states(j,1:opt.Nparams) + 0.5 * opt.epsilon^2 * (MetricTensor{j}.invG *...
-                    MetricTensor{j}.GradL)'+ opt.epsilon * randn(1,opt.Nparams) * MetricTensor{j}.sqrtInvG;
-
-                % Check the boundary limiation
-                proposal(proposal < opt.bounds(1, :)) = opt.bounds(1, proposal < opt.bounds(1, :));
-                proposal(proposal > opt.bounds(2, :)) = opt.bounds(2, proposal > opt.bounds(2, :));
-
-                % Simulation of the new proposal
-                [~, newRes, newJac] = feval( FUNC, proposal );
-
-                newSS = newRes' * newRes;
-                SS    = states(j,opt.Nparams+1);
-
-                % The Metropolis probability
-                rho = ( exp( -0.5 *( (newSS - SS) / sigmaSqu(j) + ...
-                    OptAlgo.priorPDF(proposal) - ...
-                    OptAlgo.priorPDF(states(j, 1:opt.Nparams)) ) ) )^Beta(j);
-
-                % If the proposal is accepted
-                if rand <= min(1, rho)
-
-                    states(j, 1:opt.Nparams) = proposal;
-                    states(j, opt.Nparams+1) = newSS;
-
-                    % Prepare the information for the PRIMAL proposal kernel
-                    %   metric tensor G, gradient vector, square root of inverse G
-                    G = Beta(j) .* (newJac' * (1/sigmaSqu(j)) * newJac);
-                    MetricTensor{j}.invG = pinv( G + eye(opt.Nparams)*1e-10 );
-
-                    [V, D] = eig(MetricTensor{j}.invG);
-                    D = diag(D);
-                    for k = 1:opt.Nparams
-                        if D(k) < 0
-                            error('OptAlgo.PRIMAL:  negative eigenvalue of metrix invG \nSet logScale to true in PRIMAL\n')
                         end
-                        D(k) = sqrt( D(k) );
+
+                        v = v^3; u = rand(1);
+
+                        if u < 1 - 0.0331*x^4, break, end
+
+                        if log(u) < 0.5 * x^2 + d * (1-v+log(v)), break, end
+
                     end
 
-                    MetricTensor{j}.sqrtInvG = V * diag(D) * V';
-                    MetricTensor{j}.GradL = -newJac' * newRes / sigmaSqu(j);
-
-                    if j == 1, accepted = accepted + 1; end
+                    y = b * d * v;
 
                 end
 
-            end % for j = 1:opt.Nchain
+            end % Gammar
 
-        end % samplerPRIMAL
-
-        function states = chainSwap(states, sigmaSqu, Beta, opt)
-%------------------------------------------------------------------------------
-% Swap of the chains at pre-determined intervals
-%
-% Parameter:
-%       - states. The Nchain x (Nparams+1) matrix
-%       - sigmaSqu. The sigma square matrix (the covariance matrix)
-%       - Beta. Inverse of the temperature vector in parallel tempering
-%       - opt. The PRIMAL options
-%
-% Return:
-%       - states. Same
-%------------------------------------------------------------------------------
-
-
-            if nargin < 4
-                error('OptAlgo.chainSwap: There are no enough input arguments \n');
-            end
-
-            a = ceil(rand*opt.Nchain);
-
-            if a == opt.Nchain
-                b = 1;
-            else
-                b = a+1;
-            end
-
-            SSa = states(a, opt.Nparams+1);
-            SSb = states(b, opt.Nparams+1);
-
-            % Chains are swaped with certain Metropolis probability
-            rho = ( exp(-0.5 * (SSa-SSb) / sigmaSqu(a)) )^(Beta(b) - Beta(a));
-
-            if rand < min(1, rho)
-                temp         = states(a, :);
-                states(a, :) = states(b, :);
-                states(b, :) = temp;
-                clear temp;
-            end
-
-        end % chainSwap
-
-        function Temperatures = tpDynamics(it, states, Temperatures, sigmaSqu, opt)
-%------------------------------------------------------------------------------
-% Temperature evolution in the parallel tempering
-%
-% parameter:
-%       - it. The index of the current chain
-%       - states. The Nchain x (Nparams+1) matrix
-%       - Temperatures. The vector of the temperature in the parallel tempering
-%       - simgaSqu. The sigma square vector (the covariance matrix)
-%       - opt. The PRIMAL options
-%
-% Return:
-%       - Temperatures. Same
-%------------------------------------------------------------------------------
-
-
-            if nargin < 5
-                error('OptAlgo.tpDynamics: There are no enough input arguments \n');
-            end
-
-            t0 = 1e3; nu = 100;
-
-            Beta = 1 ./ Temperatures(it, :);
-
-            for i = 2: opt.Nchain
-
-                b = i - 1;
-                if i == opt.Nchain
-                    c = 1;
-                else
-                    c = i + 1;
-                end
-
-                SSa = states(i, opt.Nparams+1);
-                SSb = states(b, opt.Nparams+1);
-                SSc = states(c, opt.Nparams+1);
-
-                rho_ab = min( 1, (exp(-0.5*(SSa-SSb)/sigmaSqu(i)))^(Beta(b)-Beta(i)) );
-                rho_ca = min( 1, (exp(-0.5*(SSc-SSa)/sigmaSqu(c)))^(Beta(i)-Beta(c)) );
-
-                differential = t0 / (nu * (it + t0)) * (rho_ab - rho_ca);
-
-                Temperatures(it+1, i) = Temperatures(it+1, i-1) + ...
-                    exp( log(Temperatures(it, i) - Temperatures(it, i-1) ) + differential);
-
-            end
-
-        end % tpDynamics
-
-        function Population = conversionDataPRIMAL(maxIter, opt)
-%------------------------------------------------------------------------------
-% Load and convert the data in ascii format to the mat format
-%   then generate the population for statistics
-%------------------------------------------------------------------------------
-
-
-            if nargin < 2
-                error('OptAlgo.conversionDataPRIMAL: There are no enough input arguments \n');
-            end
-
-            chain = []; Population = [];
-
-            for i = 1:opt.Nchain
-
-                load(sprintf('chainData_%d.dat', i));
-
-                chain = [chain eval(sprintf('chainData_%d', i))];
-
-            end
-
-            save('chain.dat', 'chain', '-ascii');
-            for  j = 1:opt.Nchain
-                eval(sprintf('delete chainData_%d.dat',j));
-            end
-
-            % Discard the former 50% chain, retain only the last 50%
-            if maxIter < opt.nsamples
-                idx = floor(0.5 * maxIter);
-            else
-                idx = floor(0.5 * opt.nsamples);
-            end
-
-            for k = 1:opt.Nchain
-                eval(sprintf('chainData_%d(1:idx, :) = [];', k));
-                Population = [Population; eval(sprintf('chainData_%d', k))];
-            end
-
-            save('population.dat', 'Population', '-ascii');
-
-        end % conversionDataPRIMAL
-
-
-    end % PRIMAL
-
-
-%   Miscellaneous
-    methods (Static = true, Access = 'public')
+        end % GammerDistribution
 
         function xLog = pTransfer(str, x)
 %------------------------------------------------------------------------------
@@ -2232,6 +668,62 @@ classdef OptAlgo < handle
 
         end % logTransfer
 
+        function prior = priorPDF(points)
+%------------------------------------------------------------------------------
+% This is a routine used for constructe the prior distribution for MCMC
+%
+% Parameters:
+%       points. The estimated parameters
+%
+% Return:
+%       prior. The prior possibility, prior = f(point).
+%------------------------------------------------------------------------------
+
+
+            prior = 1;
+
+            % if no prior information, return
+            if isempty(OptAlgo.prior)
+                return;
+            end
+
+            [~, C] = size(OptAlgo.prior);
+
+            for i = 1:C-1
+
+                if OptAlgo.logScale
+
+                    [f, xi] = ksdensity(OptAlgo.pTransfer('exp', OptAlgo.prior(:,i)), 'npoints', 1000);
+                    % spline may render negative density value
+%                    densityVal = ppval( spline(xi, f), OptAlgo.pTransfer('exp', points(i)) );
+                    for j = 1:1000
+                        if xi(j) >= OptAlgo.pTransfer('exp', points(i))
+                            idx = j;
+                            densityVal = f(idx);
+                            break
+                        end
+                    end
+
+                else
+
+                    [f, xi] = ksdensity(OptAlgo.prior(:,i), 'npoints', 1000);
+%                    densityVal = ppval(spline(xi, f), points(i));
+                    for j = 1:1000
+                        if xi(j) >= points(i)
+                            idx = j;
+                            densityVal = f(idx);
+                            break
+                        end
+                    end
+
+                end
+
+                prior = prior * densityVal;
+
+            end % for i = 1:C-1
+
+        end % priorPDF
+
         function FigurePlot(Population, opt)
 %------------------------------------------------------------------------------
 % Plot the histgram and scatter figures of the last population
@@ -2257,7 +749,7 @@ classdef OptAlgo < handle
 %                OptAlgo.tickLabelFormat(gca, 'x', '%0.2e');
 %                OptAlgo.tickLabelFormat(gca, 'x', []);
 %                set(gca, 'XTickLabel', num2str(get(gca, 'xTick')', '%g'));
-%                 OptAlgo.xtickLabelRotate([], 15, [], 'FontSize', 20, 'FontName', 'Times New Roman');
+%                OptAlgo.xtickLabelRotate([], 15, [], 'FontSize', 20, 'FontName', 'Times New Roman');
                 set(gca, 'ygrid', 'on');
 
             end
@@ -2275,7 +767,7 @@ classdef OptAlgo < handle
                     set(gca, 'FontName', 'Times New Roman', 'FontSize', 20);
 %                    OptAlgo.tickLabelFormat(gca, 'x', '%0.2e');
 %                    set(gca, 'XTickLabel', num2str(get(gca, 'xTick')', '%g'));
-%                     OptAlgo.xtickLabelRotate([], 15, [], 'FontSize', 20, 'FontName', 'Times New Roman');
+%                    OptAlgo.xtickLabelRotate([], 15, [], 'FontSize', 20, 'FontName', 'Times New Roman');
                     grid on;
 
                 end
@@ -2299,63 +791,6 @@ classdef OptAlgo < handle
             end
 
         end % FigurePlot
-
-        function prior = priorPDF(points)
-%------------------------------------------------------------------------------
-% This is a routine used for constructe the prior distribution for MCMC
-%
-% Parameters:
-%       points. The estimated parameters
-%       binNum. The amount of the histogram bar
-%
-% Return:
-%       prior. The prior possibility
-%           It should be the plain data in my script, which will be used by
-%           hist routine to generate discrete points. If you have a continuous
-%           function, it is better. Please change this routine to customize.
-%           Such as, prior = f(point).
-%------------------------------------------------------------------------------
-
-
-            prior = 1;
-
-            % if no prior information, return
-            if isempty(OptAlgo.prior)
-                return;
-            end
-
-            binNum = 15;
-            x = zeros(binNum, 3);
-            [R, C] = size(OptAlgo.prior);
-
-            for i = 1:C-1
-
-                point = points(i);
-
-                binWidth = ( max(OptAlgo.prior(:,i)) - min(OptAlgo.prior(:,i)) ) / binNum;
-
-                [y, x(:,1)] = hist(OptAlgo.prior(:,i), binNum);
-
-                x(:,2) = x(:,1) - binWidth/2;
-                x(:,3) = x(:,1) + binWidth/2;
-
-                if point <= x(1,2)
-                    idx = 1;
-                elseif point >= x(binNum, 3)
-                    idx = binNum;
-                else
-                    idx = find(point >= x(:,2) & point <= x(:,3));
-                end
-
-                if isempty(idx)
-                    error('OptAlgo.priorPDF: Please re-check your searching domain setup \n');
-                else
-                    prior = prior * y(idx) / R;
-                end
-
-            end % for i = 1:C-1
-
-        end % priorPDF
 
         function tickLabelFormat(hAxes, axName, format)
 %------------------------------------------------------------------------------
@@ -2552,6 +987,7 @@ classdef OptAlgo < handle
 % Author: Brian FG Katz, bfgkatz@hotmail.com
 %------------------------------------------------------------------------------
 
+
             % check to see if xticklabel_rotate has already been here (no other reason for this to happen)
             if isempty(get(gca,'XTickLabel'))
                 error('OptAlgo.xtickLabelRotate: can not process, either xticklabel_rotate has already been run or XTickLabel field has been erased \n');
@@ -2580,7 +1016,7 @@ classdef OptAlgo < handle
                 XTick = get(gca,'XTick');
             end
 
-		    % Make XTick a column vector
+            % Make XTick a column vector
             XTick = XTick(:);
 
             if ~exist('xTickLabels')
@@ -2735,140 +1171,9 @@ classdef OptAlgo < handle
 
         end % crashSaver
 
-    end % method
+    end % misc
 
-
-% Upper level algorithm, in charge of discrete structural optimization
-% -----------------------------------------------------------------------------
-    methods (Static = true, Access = 'public')
-
-        function structure = discreteInit(opt)
-% -----------------------------------------------------------------------------
-% Generating the initial population of structures
-%
-% Encoding: each node between two adjacent columns are denoted by a number sequently
-%           0 1 2 3 4 5 6 7 8 9 10 ...
-% Here 0 represents the desorbent port all the time. As it is a loop, we always need a starting point
-% And the sequence of ports are D E (ext_1 ext_2) F R constantly. The selective ranges of each pointer
-% (E,F,R) are shown as follows in the binary scenario:
-%           0 1 2 3 4 5 6 7 8 9 10 ...
-%           D
-%             E < ------- > E      : extract_pool
-%               F < ------- > F    : feed_pool
-%                 R < ------- > R  : raffinate_pool
-% -----------------------------------------------------------------------------
-
-
-            nodeIndex = opt.nColumn -1 ;
-
-            % Preallocate of the structure matrix
-            structure = zeros(opt.structNumber,opt.nZone+1);
-
-            for i = 1:opt.structNumber
-
-                if opt.nZone == 4
-                    extract_pool = [1, nodeIndex-2];
-                    structure(i,2) = randi(extract_pool);
-
-                    feed_pool = [structure(i,2)+1, nodeIndex-1];
-                    structure(i,3) = randi(feed_pool);
-
-                    raffinate_pool = [structure(i,3)+1, nodeIndex];
-                    structure(i,4) = randi(raffinate_pool);
-
-                elseif opt.nZone == 5
-                    extract1_pool = [1, nodeIndex-3];
-                    structure(i,2) = randi(extract1_pool);
-
-                    extract2_pool = [structure(i,2)+1, nodeIndex-2];
-                    structure(i,3) = randi(extract2_pool);
-
-                    feed_pool = [structure(i,3)+1, nodeIndex-1];
-                    structure(i,4) = randi(feed_pool);
-
-                    raffinate_pool = [structure(i,4)+1, nodeIndex];
-                    structure(i,5) = randi(raffinate_pool);
-
-                end
-            end
-
-        end
-
-        function structID = structure2structID(opt,structure)
-% -----------------------------------------------------------------------------
-% This is the rountine that decode the structure into structID for simulation
-%
-% For instance, the structure is [0, 3, 5, 9] in a binary situation with column amount 10
-% the structID is [3,2,4,1], there are three in the zone I, two in zone II, four in
-% zone III, one in zone IV
-% -----------------------------------------------------------------------------
-
-
-            structID = zeros(1, opt.nZone);
-
-            structID(1:opt.nZone-1) = structure(2:end) - structure(1:end-1);
-
-            structID(end) = opt.nColumn - structure(end);
-
-        end
-
-        function mutant_struct = discreteMutation(opt, structure)
-% -----------------------------------------------------------------------------
-% This is the mutation part of the upper-level structure optimization algorithm
-%
-% First of all, two random selected structures are prepared;
-% Then the optimal structure until now is recorded;
-% Lastly, the mutant_struct = rand_struct_1 &+ rand_struct_2 &+ optima_struct
-% -----------------------------------------------------------------------------
-
-
-            % Record the optimal structure so far and select two random structures
-            rand_struct_1 = structure(randi(structNumber), 1:opt.nZone);
-            rand_struct_2 = structure(randi(structNumber), 1:opt.nZone);
-
-            [~, id] = min(structure(:,opt.nZone+1));
-            optima_struct = structure(id, 1:opt.nZone);
-
-            % Preallocate of the mutation structure
-            mutant_struct = zeros(1,nZone);
-
-            for i = 1:opt.nZone
-                if rand < 0.33
-                    mutant_struct(i) = rand_struct_1(i);
-                elseif (0.33 <= rand) && (rand<= 0.67)
-                    mutant_struct(i) = rand_struct_2(i);
-                else
-                    mutant_struct(i) = optima_struct(i);
-                end
-            end
-
-        end
-
-        function trial_struct = discreteCrossover(opt, structure, mutant_struct)
-% -----------------------------------------------------------------------------
-% The crossover part of the upper-level structure optimization algorithm
-%
-% The generation of a new trial structure is achieved by randomly combining the original
-% structure and mutation structure.
-% -----------------------------------------------------------------------------
-
-
-            trial_struct = zeros(1, opt.nZone);
-
-            for i = 1:opt.nZone
-                if rand < 0.5
-                    trial_struct(i) = structure(i);
-                else
-                    trial_struct(i) = mutant_struct(i);
-                end
-            end
-
-        end
-
-    end % upper level
-
-
-end
+end % classdef
 % =============================================================================
 %              The MATLAB library for optimization case studies
 %
