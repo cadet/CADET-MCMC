@@ -111,8 +111,8 @@ classdef OptAlgo < handle
 
                 % The Metropolis probability
                 if OptAlgo.logScale
-                    rho12 = exp( -0.5 *((newSS - SS) / sigmaSqu) + sum(newpar) - sum(oldpar) ) * ...
-                        OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(oldpar);
+                    rho12 = exp( -0.5 *((newSS - SS) / sigmaSqu) + sum(newpar) - sum(oldpar) + ...
+                        OptAlgo.priorPDF(newpar) - OptAlgo.priorPDF(oldpar) );
                 else
                     rho12 = exp( -0.5 * (newSS - SS) / sigmaSqu ) * ...
                         OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(oldpar);
@@ -142,19 +142,20 @@ classdef OptAlgo < handle
 
                     if OptAlgo.logScale
 
-                        rho32 = exp( -0.5 *((newSS - newSS2) / sigmaSqu) + sum(newpar) - sum(newpar2) ) * ...
-                            OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(newpar2);
+                        rho32 = exp( -0.5 *((newSS - newSS2) / sigmaSqu) + sum(newpar) - sum(newpar2) + ...
+                            OptAlgo.priorPDF(newpar) - OptAlgo.priorPDF(newpar2) );
 
                         % The conventional version of calculation
-%                        q2 = exp( -0.5 *((newSS2 - SS) / sigmaSqu) + sum(newpar2) - sum(oldpar) ) * ...
-%                            OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
+%                        q2 = exp( -0.5 *((newSS2 - SS) / sigmaSqu) + sum(newpar2) - sum(oldpar) + ...
+%                            OptAlgo.priorPDF(newpar2) - OptAlgo.priorPDF(oldpar) );
 %                        q1 = exp( -0.5 * (norm((newpar2 - newpar) * inv(R))^2 - norm((oldpar - newpar) * inv(R))^2) );
 
                         % The speed-up version of above calculation
                         q1q2 = exp( -0.5 *( (newSS2 - SS) / sigmaSqu + ...
                             (newpar2 - newpar) * (R \ (R' \ (newpar2' - newpar'))) - ...
                             (oldpar - newpar) * (R \ (R' \ (oldpar' - newpar'))) ) + ...
-                            sum(newpar2) - sum(oldpar) ) * OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
+                            sum(newpar2) - sum(oldpar) + ...
+                            OptAlgo.priorPDF(newpar2) - OptAlgo.priorPDF(oldpar) );
 
                     else
 
@@ -680,49 +681,70 @@ classdef OptAlgo < handle
 %------------------------------------------------------------------------------
 
 
-            prior = 1;
-
-            % if no prior information, return
             if isempty(OptAlgo.prior)
+                prior = 1;
                 return;
             end
 
-            [~, C] = size(OptAlgo.prior);
+            % Load prior data file
+            data = OptAlgo.prior(:, 1:end-1);
+            [~, d] = size(data);
 
-            for i = 1:C-1
+            % Get mesh grid and pdf of the prior
+            if exist('.tmp.mat', 'file') ~= 2
+                OptAlgo.multivariatePrior(data, d);
+            end
 
-                if OptAlgo.logScale
+            proposedPoint = cell(1, d);
+            for i = 1:d
+                proposedPoint{i} = points(i);
+            end
 
-                    [f, xi] = ksdensity(OptAlgo.pTransfer('exp', OptAlgo.prior(:,i)), 'npoints', 1000);
-                    % spline may render negative density value
-%                    densityVal = ppval( spline(xi, f), OptAlgo.pTransfer('exp', points(i)) );
-                    for j = 1:1000
-                        if xi(j) >= OptAlgo.pTransfer('exp', points(i))
-                            idx = j;
-                            densityVal = f(idx);
-                            break
-                        end
-                    end
-
-                else
-
-                    [f, xi] = ksdensity(OptAlgo.prior(:,i), 'npoints', 1000);
-%                    densityVal = ppval(spline(xi, f), points(i));
-                    for j = 1:1000
-                        if xi(j) >= points(i)
-                            idx = j;
-                            densityVal = f(idx);
-                            break
-                        end
-                    end
-
-                end
-
-                prior = prior * densityVal;
-
-            end % for i = 1:C-1
+            load('.tmp.mat');
+            % Evaluate the density value of the new proposal
+            prior = interpn(fullAxisMesh{:}, pdfVal, proposedPoint{:});
 
         end % priorPDF
+
+        function multivariatePrior(data, d)
+%------------------------------------------------------------------------------
+% Build mesh grid and invoke mvkde (multivariate kernel density estimator) routine
+%------------------------------------------------------------------------------
+
+
+            % Preallocation
+            temp = [];
+            meshSize = 10;
+            axisMesh = cell(1, d);
+            fullAxisMesh = cell(1, d);
+
+            maxVector = max(data, [], 1);
+            minVector = min(data, [], 1);
+            rangeVec  = maxVector - minVector;
+
+            % Axial mesh
+            for i = 1:d
+                axisMesh{i} = minVector(i) : rangeVec(i)/(meshSize-1) : maxVector(i);
+            end
+
+            % Generate n-demensional grid
+            [fullAxisMesh{:}] = ndgrid(axisMesh{:});
+
+            % Reshape grid to call mvkde routine
+            for i = 1:d
+                temp = [temp, fullAxisMesh{i}(:)];
+            end
+            grids = reshape(temp, meshSize^d, d);
+
+            % Invoke multivariate kernel density estimator
+            pdfVal = OptAlgo.mvkde(data, grids);
+            % Inverse reshape
+            pdfVal = reshape(pdfVal, size(fullAxisMesh{1}));
+
+            % Store the mesh and pdf information for further use
+            save('.tmp.mat', 'axisMesh', 'fullAxisMesh', 'pdfVal');
+
+        end % multivariatePrior
 
         function FigurePlot(Population, opt)
 %------------------------------------------------------------------------------
@@ -792,12 +814,191 @@ classdef OptAlgo < handle
 
         end % FigurePlot
 
+        function [pdf, X1, X2] = mvkde(X, grid, gam)
+%------------------------------------------------------------------------------
+% adaptive kernel density estimation in high dimensions;
+%
+% INPUTS:   X  - data as a 'n' by 'd' vector;
+%
+%         grid - 'm' points of dimension 'd' over which pdf is computed;
+%                default provided only for 2-dimensional data;
+%                see example on how to construct it in higher dimensions
+%
+%          gam - cost/accuracy tradeoff parameter, where gam<n;
+%                default value is gam=ceil(n^(1/2)); larger values
+%                may result in better accuracy, but always reduce speed;
+%                to speedup the code, reduce the value of "gam";
+%
+% OUTPUT: pdf   - the value of the estimated density at 'grid'
+%         X1,X2 - grid only for 2 dimensional data
+%
+%
+%  Reference:
+%  Kernel density estimation via diffusion
+%  Z. I. Botev, J. F. Grotowski, and D. P. Kroese (2010)
+%  Annals of Statistics, Volume 38, Number 5, pages 2916-2957.
+%------------------------------------------------------------------------------
+
+
+            [n, d] = size(X);
+
+            % begin scaling preprocessing
+            MAX = max(X, [], 1);
+            MIN = min(X, [], 1);
+            scaling = MAX - MIN;
+
+            MAX = MAX + scaling/10;
+            MIN = MIN - scaling/10;
+            scaling = MAX - MIN;
+
+            X = bsxfun(@minus, X, MIN);
+            X = bsxfun(@rdivide, X, scaling);
+
+            % failing to provide grid
+            if (nargin < 2) || isempty(grid)
+
+                warning('Assuming data is 2 dimensional. For higher dimensions, provide a grid as in example.')
+
+                % create meshgrid in 2-dimensions
+                [X1, X2] = meshgrid( MIN(1):scaling(1)/(2^7-1):MAX(1), MIN(2):scaling(2)/(2^7-1):MAX(2) );
+
+                % create grid for plotting
+                grid=reshape([X1(:),X2(:)], 2^14, d);
+
+            end
+
+            mesh = bsxfun(@minus, grid, MIN);
+            mesh = bsxfun(@rdivide, mesh, scaling);
+
+            % failing to provide speed/accuracy tradeoff
+            if nargin < 3
+                gam = ceil(n^(1/2));
+            end
+
+            % algorithm initialization
+            del = 0.1 / n^(d/(d+4));
+            perm = randperm(n);
+            mu = X(perm(1:gam), :);
+            w = rand(1, gam);
+            w = w / sum(w);
+            Sig = bsxfun(@times, rand(d,d,gam), eye(d)*del);
+            ent = -Inf;
+
+            % begin algorithm
+            for iter = 1:1500
+                Eold = ent;
+
+                % update parameters
+                [w, mu, Sig, del, ent] = OptAlgo.regEM(w, mu, Sig, del, X);
+
+                % stopping condition
+                err = abs( (ent-Eold) / ent );
+                if (err < 10^(-4)) || iter > 200, break, end
+            end
+
+            % now output density values at grid
+            pdf = OptAlgo.probfun(mesh, w, mu, Sig) / prod(scaling); % evaluate density
+
+            % adjust bandwidth for scaling
+            del = del * scaling;
+
+        end % mvkde
+
+        function pdf = probfun(x, w, mu, Sig)
+%------------------------------------------------------------------------------
+%
+%------------------------------------------------------------------------------
+
+
+            [gam, d] = size(mu);
+
+            pdf = 0;
+
+            for k = 1:gam
+
+                L = chol(Sig(:, :, k));
+                s = diag(L);
+
+                logpdf = -0.5 * sum( (bsxfun(@minus, x, mu(k, :)) / L).^2, 2 ) + log(w(k)) - ...
+                    sum(log(s)) - d * log(2*pi) / 2;
+
+                pdf = pdf + exp(logpdf);
+
+            end
+
+        end % probfun
+
+        function [w, mu, Sig, del, ent] = regEM(w, mu, Sig, del, X)
+%------------------------------------------------------------------------------
+%
+%------------------------------------------------------------------------------
+
+
+            [gam, d] = size(mu);
+            [n, d] = size(X);
+
+            log_lh = zeros(n, gam);
+            log_sig = log_lh;
+
+            for i = 1:gam
+
+                L = chol(Sig(:, :, i));
+
+                Xcentered = bsxfun(@minus, X, mu(i,:));
+
+                xRinv = Xcentered / L; xSig = sum((xRinv / L').^2,2) + eps;
+
+                log_lh(:, i) =-0.5 * sum(xRinv.^2, 2) - sum(log(diag(L))) + ...
+                    log(w(i)) - d * log(2*pi) / 2 - 0.5 * del^2 * trace((eye(d)/L)/L');
+
+                log_sig(:, i) = log_lh(:, i) + log(xSig);
+
+            end
+
+            maxll = max (log_lh, [], 2);
+            maxlsig = max (log_sig, [], 2);
+
+            p = exp(bsxfun(@minus, log_lh, maxll));
+            psig = exp(bsxfun(@minus, log_sig, maxlsig));
+
+            density = sum(p, 2);
+            psigd = sum(psig, 2);
+
+            logpdf = log(density) + maxll;
+            logpsigd = log(psigd) + maxlsig;
+
+            p = bsxfun(@rdivide, p, density);
+
+            ent = sum(logpdf);
+
+            w = sum(p, 1);
+
+            for i = find(w > 0)
+                %compute mu's
+                mu(i, :) = p(:, i)' * X / w(i);
+
+                Xcentered = bsxfun(@minus, X, mu(i,:));
+                Xcentered = bsxfun(@times, sqrt(p(:, i)), Xcentered);
+
+                % compute sigmas
+                Sig(:, :, i) = Xcentered' * Xcentered / w(i) + del^2 * eye(d);
+            end
+
+            % estimate curvature
+            w = w / sum(w);
+
+            curv = mean( exp(logpsigd - logpdf) );
+
+            del = 1 / (4 * n * (4*pi)^(d/2) *curv)^(1 / (d + 2));
+
+        end % regEM
+
         function tickLabelFormat(hAxes, axName, format)
 %------------------------------------------------------------------------------
 % Sets the format of the tick labels
 %
 % Syntax:
-%    ticklabelformat(hAxes,axName,format)
+%    ticklabelformat(hAxes, axName, format)
 %
 % Input Parameters:
 %    hAxes  - handle to the modified axes, such as returned by the gca function
