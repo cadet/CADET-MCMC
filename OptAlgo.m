@@ -111,8 +111,8 @@ classdef OptAlgo < handle
 
                 % The Metropolis probability
                 if OptAlgo.logScale
-                    rho12 = exp( -0.5 *((newSS - SS) / sigmaSqu) + sum(newpar) - sum(oldpar) + ...
-                        OptAlgo.priorPDF(newpar) - OptAlgo.priorPDF(oldpar) );
+                    rho12 = exp( -0.5 *((newSS - SS) / sigmaSqu) + sum(newpar) - sum(oldpar) ) * ...
+                        OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(oldpar);
                 else
                     rho12 = exp( -0.5 * (newSS - SS) / sigmaSqu ) * ...
                         OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(oldpar);
@@ -142,20 +142,20 @@ classdef OptAlgo < handle
 
                     if OptAlgo.logScale
 
-                        rho32 = exp( -0.5 *((newSS - newSS2) / sigmaSqu) + sum(newpar) - sum(newpar2) + ...
-                            OptAlgo.priorPDF(newpar) - OptAlgo.priorPDF(newpar2) );
+                        rho32 = exp( -0.5 *((newSS - newSS2) / sigmaSqu) + sum(newpar) - sum(newpar2) ) * ...
+                            OptAlgo.priorPDF(newpar) / OptAlgo.priorPDF(newpar2);
 
                         % The conventional version of calculation
-%                        q2 = exp( -0.5 *((newSS2 - SS) / sigmaSqu) + sum(newpar2) - sum(oldpar) + ...
-%                            OptAlgo.priorPDF(newpar2) - OptAlgo.priorPDF(oldpar) );
+%                        q2 = exp( -0.5 *((newSS2 - SS) / sigmaSqu) + sum(newpar2) - sum(oldpar) ) * ...
+%                            OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
 %                        q1 = exp( -0.5 * (norm((newpar2 - newpar) * inv(R))^2 - norm((oldpar - newpar) * inv(R))^2) );
 
                         % The speed-up version of above calculation
                         q1q2 = exp( -0.5 *( (newSS2 - SS) / sigmaSqu + ...
                             (newpar2 - newpar) * (R \ (R' \ (newpar2' - newpar'))) - ...
                             (oldpar - newpar) * (R \ (R' \ (oldpar' - newpar'))) ) + ...
-                            sum(newpar2) - sum(oldpar) + ...
-                            OptAlgo.priorPDF(newpar2) - OptAlgo.priorPDF(oldpar) );
+                            sum(newpar2) - sum(oldpar) ) * ...
+                            OptAlgo.priorPDF(newpar2) / OptAlgo.priorPDF(oldpar);
 
                     else
 
@@ -687,22 +687,31 @@ classdef OptAlgo < handle
             end
 
             % Load prior data file
-            data = OptAlgo.prior(:, 1:end-1);
+            if OptAlgo.logScale
+                data = OptAlgo.pTransfer('exp', OptAlgo.prior(:, 1:end-1));
+            else
+                data = OptAlgo.prior(:, 1:end-1);
+            end
             [~, d] = size(data);
 
             % Get mesh grid and pdf of the prior
-            if exist('.tmp.mat', 'file') ~= 2
+            if exist('tmp.mat', 'file') ~= 2
                 OptAlgo.multivariatePrior(data, d);
             end
 
             proposedPoint = cell(1, d);
             for i = 1:d
-                proposedPoint{i} = points(i);
+                if OptAlgo.logScale
+                    proposedPoint{i} = OptAlgo.pTransfer('exp', points(i));
+                else
+                    proposedPoint{i} = points(i);
+                end
             end
 
-            load('.tmp.mat');
+            load('tmp.mat');
             % Evaluate the density value of the new proposal
             prior = interpn(fullAxisMesh{:}, pdfVal, proposedPoint{:});
+            if isnan(prior), prior = 1; end
 
         end % priorPDF
 
@@ -714,7 +723,7 @@ classdef OptAlgo < handle
 
             % Preallocation
             temp = [];
-            meshSize = 10;
+            meshSize = 20;
             axisMesh = cell(1, d);
             fullAxisMesh = cell(1, d);
 
@@ -742,7 +751,7 @@ classdef OptAlgo < handle
             pdfVal = reshape(pdfVal, size(fullAxisMesh{1}));
 
             % Store the mesh and pdf information for further use
-            save('.tmp.mat', 'axisMesh', 'fullAxisMesh', 'pdfVal');
+            save('tmp.mat', 'axisMesh', 'fullAxisMesh', 'pdfVal');
 
         end % multivariatePrior
 
