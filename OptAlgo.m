@@ -6,7 +6,7 @@ classdef OptAlgo < handle
 % =============================================================================
 
     properties (Constant)
-        swarm       = 20;              % population size
+        swarm       = 30;              % population size
         sample      = 10000;           % loop count for evolution (at least 100)
         dataPoint   = 10000;           % amount of data observation
         prior       = [];              % prior information (default empty)
@@ -292,7 +292,7 @@ classdef OptAlgo < handle
 
             opt = [];
 
-            opt.Nparams       = length(obj.params);
+            opt.Nparams       = obj.params;
             opt.bounds        = OptAlgo.pTransfer('log', obj.paramBound)';
             opt.nsamples      = OptAlgo.sample;
             opt.criterion     = 0.0001;

@@ -1,143 +1,182 @@
 function fitDextran
 %==============================================================================
-% Fit the single peak injection curves
-%
-% fitting parameters: theta = {D_ax, K_f, D_p, e_c, e_p}
+% Fit the triple dextran peak curves
 %==============================================================================
 
+    % Number of optimized parameters
+    opt.params = 5;
 
-    % Collect data of experiment in cell array (one cell per observed compoenent)
-    % Note that time points of the measurements are given in sim.solutionTimes
-    temp = load('data_dex.dat'); % chromatogram data [time, conc.]
-    data = cell(1,1);
-    data{1} = temp(:,2);
-
-    sim = createModel(temp(:,1));
-
-    % Set model parameters and enable sensitivities
-    params = cell(5, 1);
-    params{1} = makeSensitivity([0], {'COL_DISPERSION'},[-1], [-1], [-1], [-1]);
-    params{2} = makeSensitivity([0], {'FILM_DIFFUSION'}, [0], [-1], [-1], [-1]);
-    params{3} = makeSensitivity([0], {'PAR_DIFFUSION'},  [0], [-1], [-1], [-1]);
-    params{4} = makeSensitivity([0], {'COL_POROSITY'},  [-1], [-1], [-1], [-1]);
-    params{5} = makeSensitivity([0], {'PAR_POROSITY'},  [-1], [-1], [-1], [-1]);
-    sim.setParameters(params, false(5, 1));
-
-    % Create fit object
-    pf = ParameterFit();
-
-
-    % Specify which components are observed in which factor for each observation / wavelength
-    idxComp = cell(1,1);
-    idxComp{1} = [1];
-
-    % Add the experiment to the fit
-    pf.addExperiment(data, sim, [0], idxComp, [], [], [], [], 'Dextran', {'Dextran'});
-
-    % Please disable CADET's logarithmic transformation as the build-in optimizer not used
-    pf.parameterTransform = LogParameterTransformation(ones(1, 5), false(1, 5));
-
-
-    % This variable serves as storage for the plot handles returned by the plot function of parameterFit
-    plotHd = [];
-
-    opt.params = params;
     % Specify the searching domain boundary for the algorithm
-    opt.paramBound = [1e-11, 1e-5; 1e-8, 1e-4; 1e-11, 1e-6; 0.1, 0.9; 0.01, 0.9];
+    % Length of DPFR, axial dispersion of DPFR, volume of CSTR, axial dispersion of column, column porosity
+    opt.paramBound = [0.01 1.0; 1e-11 1e-8; 1e-11 1e-7; 1e-11 1e-9; 0.01 0.90];
 
-    % Call algorithms in OptAlgorithms to implement parameter estimation
-    OptAlgo.Markov_Chain_Monte_Carlo(@residualSumOfSquares, opt);
-
-
-    function res = residualSumOfSquares(x)
-
-        try
-            % Calculate the residual between meas data and simulated data
-            res = pf.residualVector(x);
-            % Calculate the sum of square: res = R' * R
-            res = sum(res.^2);
-
-            % Visualization
-            plotHd = pf.plot(plotHd, 0, [], false, false, false);
-        catch e
-            res = OptAlgo.crashSaver(x, e);
-        end
-
-    end % residualSumOfSquares
+    % Call the algorithm in OptAlgo to implement parameter estimation
+    OptAlgo.Markov_Chain_Monte_Carlo(@objectiveFunc, opt);
 
 end % fitDextran
 
-function sim = createModel(tOut)
-%------------------------------------------------------------------------------
-% Create the model
-%------------------------------------------------------------------------------
+function res = objectiveFunc(params)
+
+    % Load the triple experimental datasets
+    dataset = cell(3, 1);
+    dataset{1} = load('columnDextran1.dat');
+    dataset{2} = load('columnDextran2.dat');
+    dataset{3} = load('columnDextran3.dat');
+
+    % Generate chromatographic models and invoke the simulator
+    solution = createModelcolumnDextran(dataset{3}(1:409, 1), params);
+
+    % Calculate the least square residuals
+    res = [];
+    for i = 1:3
+        res = [res; (solution(1:409, 2) - dataset{i}(1:409, 2))];
+    end
+
+    res = sum(res.^2);
+
+    % Visualization
+    figure(01); clf
+    plot(dataset{1}(1:409,1), dataset{1}(1:409,2), 'b:'); hold on
+    plot(dataset{2}(1:409,1), dataset{1}(1:409,2), 'b:'); hold on
+    plot(dataset{3}(1:409,1), dataset{1}(1:409,2), 'b:'); hold on
+    plot(solution(1:409,1), solution(1:409,2), 'r'); hold off
+    legend('Meas1', 'Meas2', 'Meas3', 'Sim');
+    grid on
+
+end % objectiveFunc
+
+function solution = createModelcolumnDextran(time, params)
 
 
-    mGrm = SingleGRM();
+    nComp = 1; % set global number of components
 
-    % components
-    mGrm.nComponents = 1;
-    % Discretization
-    mGrm.nCellsColumn = 40;
-    mGrm.nCellsParticle = 3;
-    mGrm.nBoundStates = ones(mGrm.nComponents, 1);
+    % Inlet unit operation
+    mIn = PiecewiseCubicPolyInlet();
+    mIn.nComponents = nComp;
 
-    % Initial conditions
-    mGrm.initialBulk = [0.0];
-    mGrm.initialSolid = [0.0];
+    % Reserve space: nSections x nComponents (a section can be thought of being a
+    % step in the process, see below)
+    mIn.constant       = zeros(2, nComp);
+    mIn.linear         = zeros(2, nComp);
+    mIn.quadratic      = zeros(2, nComp);
+    mIn.cubic          = zeros(2, nComp);
 
-    % Transport
-    mGrm.dispersionColumn          = 3.3746e-8;
-    mGrm.filmDiffusion             = 1e-10;
-    mGrm.diffusionParticle         = 0.0;
-    mGrm.diffusionParticleSurface  = 0.0;
+    % Section 1: load
+    mIn.constant(1,1)  = 2.70e-3; % Dextran solution [mol/m^3]
+    % Section 2: transport
+    mIn.constant(2,1)  = 0; % [mol/m^3]
 
-    % Geometry
-    mGrm.columnLength      = 0.025;
-    mGrm.particleRadius    = 4.5e-5;
-    mGrm.porosityColumn    = 0.242;
-    mGrm.porosityParticle  = 0.6877;
+    % Construct DPFR unit operation
+    dpfr1 = LumpedRateModelWithoutPores();
+    dpfr1.nComponents = nComp;
+    dpfr1.columnLength = params(1); % [m]
+    dpfr1.porosity     = 1;
+    dpfr1.nCellsColumn = 100;
+    dpfr1.dispersionColumn      = params(2); % [m^2/s]
+    dpfr1.interstitialVelocity  = 1; % [-]
+    dpfr1.crossSectionArea      = pi * (5e-4/2)^2; %
+    dpfr1.bindingModel = [];
+    dpfr1.nBoundStates = [0];
+    dpfr1.initialBulk  = [0]; % [mol/m^3]
 
-    volumeFlow = 0.5e-6/60; % 0.5 ml/min --> l/s
-    columnRadius = 0.35e-2; % m
-    mGrm.interstitialVelocity = volumeFlow / (pi * columnRadius^2 * mGrm.porosityColumn); % m/s
+    % Symmetric DPFR unit
+    dpfr2 = LumpedRateModelWithoutPores();
+    dpfr2.nComponents = nComp;
+    dpfr2.columnLength = dpfr1.columnLength;
+    dpfr2.porosity     = dpfr1.porosity;
+    dpfr2.nCellsColumn = dpfr1.nCellsColumn;
+    dpfr2.dispersionColumn      = dpfr1.dispersionColumn; % [m^2/s]
+    dpfr2.interstitialVelocity  = dpfr1.interstitialVelocity; % [m/s]
+    dpfr2.crossSectionArea      = dpfr1.crossSectionArea; %
+    dpfr2.bindingModel = [];
+    dpfr2.nBoundStates = [0];
+    dpfr2.initialBulk  = [0]; % [mol/m^3]
 
-    % Adsorption
-    mLinear = LinearBinding();
-    mLinear.kineticBinding = false;
-    mLinear.kA      = 0;
-    mLinear.kD      = 1;
-    mGrm.bindingModel = mLinear;
+    % Construct CSTR unit operation
+    cstr1 = StirredTankModel();
+    cstr1.nComponents = nComp;
+    cstr1.porosity = 1;
+    cstr1.nBoundStates = [0];
+    cstr1.initialConcentration = [0.0];
+    cstr1.initialVolume = params(3);
 
-    % Inlet
-    temp = load('inlet_dex.dat');
-    mIn = PiecewiseCubicPolyProfile.fromUniformData(temp(:,1), temp(:,2));
+    % Symmetric CSTR unit
+    cstr2 = StirredTankModel();
+    cstr2.nComponents = nComp;
+    cstr2.porosity = cstr1.porosity;
+    cstr2.nBoundStates = cstr1.nBoundStates;
+    cstr2.initialConcentration =cstr1.initialConcentration;
+    cstr2.initialVolume = cstr1.initialVolume;
 
-    % Nonnegative limitation
-    mIn.constant(mIn.constant < 0) = 0;
-    mIn.linear(mIn.linear < 0) = 0;
-    mIn.quadratic(mIn.quadratic < 0) = 0;
-    mIn.cubic(mIn.cubic < 0) = 0;
+    % Construct GRM column unit
+    column = GeneralRateModel();
+    column.nComponents = nComp;
+    column.nCellsColumn = 100;
+    column.nCellsParticle = 10;
+    column.nBoundStates = ones(column.nComponents, 1);
+    column.initialBulk  = [0]; % [mol/m^3]
+    column.initialSolid = [0]; % [mol/m^3]
+    column.dispersionColumn          = params(4); % [m^2/s]
+    column.filmDiffusion             = 0;
+    column.diffusionParticle         = [0];
+    column.diffusionParticleSurface  = [0];
+    column.interstitialVelocity      = 1;
+    column.crossSectionArea          = pi * 0.35e-2^2; % cross sectional area
+    column.columnLength        = 0.025; % [m]
+    column.particleRadius      = 4.5e-5; % [m]
+    column.porosityColumn      = params(5); % [-]
+    column.porosityParticle    = 0.83; % [-]
 
-    mGrm.inlet = mIn;
+    % Adsorption kinetics
+    bind = LinearBinding();
+    bind.kineticBinding = false; % Quasi-stationary binding
+    bind.kA         = [0.0]; % Adsorption rate
+    bind.kD         = [1000]; % Desorption rate
+    column.bindingModel = bind;
 
-    % Simulator
+
+    % Outlet unit operation
+    mOut = OutletModel();
+    mOut.nComponents = nComp;
+
+    % Assemble system of unit operations
+    % Construct ModelSystem and assign unit operations (order determines IDs)
+    mSys = ModelSystem();
+    mSys.models = [mIn, dpfr1, cstr1, column, cstr2, dpfr2, mOut];
+    mSys.connectionStartSection = [0];
+    mSys.connections = {[0, 1, -1, -1, 0.5e-6/60; ...
+        1, 2, -1, -1, 0.5e-6/60; ...
+        2, 3, -1, -1, 0.5e-6/60; ...
+        3, 4, -1, -1, 0.5e-6/60; ...
+        4, 5, -1, -1, 0.5e-6/60; ...
+        5, 6, -1, -1, 0.5e-6/60]}; %connection: [from unit, to unit, vol. flow rate]
+
+
+    % Construct and configure simulator
     sim = Simulator.create();
-    sim.solutionTimes = tOut;
-    sim.sectionTimes = mIn.breaks;
-    sim.sectionContinuity = mIn.continuity;
+    sim.solutionTimes = time; % [s], time points at which solution is computed
+
+    % sectionTimes holds the sections and sectionContinuity indicates whether
+    % the transition between two adjacent sections is continuous
+    sim.sectionTimes = [0.0 12 sim.solutionTimes(end)]; % [s]
+    sim.sectionContinuity = false(length(sim.sectionTimes)-2,1);
 
     sim.nThreads = 4;
     sim.returnLastState = true;
     sim.returnLastStateSens = false;
 
-    sim.model = mGrm;
+    % Hand model over to simulator
+    sim.model = mSys;
+
+    % Run the models
+    result = sim.run();
+    solution = [time, result.solution.outlet{length(mSys.models)}];
 
 end
 % =============================================================================
 %  CADET - The Chromatography Analysis and Design Toolkit
 %
-%  Copyright © 2008-2014: Eric von Lieres¹, Joel Andersson,
+%  Copyright © 2008-2019: Eric von Lieres¹, Joel Andersson,
 %                         Andreas Puettmann¹, Sebastian Schnittert¹,
 %                         Samuel Leweke¹
 %
