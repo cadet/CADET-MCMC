@@ -104,7 +104,7 @@ classdef OptAlgo < handle
 
                 % Check the boundary limiation
                 newpar( newpar < opt.bounds(1, :) ) = opt.bounds(1, newpar < opt.bounds(1, :));
-                newpar( newpar > opt.bounds(2, :) ) = opt.bounds(1, newpar > opt.bounds(2, :));
+                newpar( newpar > opt.bounds(2, :) ) = opt.bounds(2, newpar > opt.bounds(2, :));
 
                 % Calculate the objective value of the new proposal
                 newSS = feval( FUNC, OptAlgo.pTransfer('exp', newpar) );
@@ -135,7 +135,7 @@ classdef OptAlgo < handle
 
                     % Check the boundary limitation of the new generated point
                     newpar2(newpar2 < opt.bounds(1, :)) = opt.bounds(1, newpar2 < opt.bounds(1, :));
-                    newpar2(newpar2 > opt.bounds(2, :)) = opt.bounds(1, newpar2 > opt.bounds(2, :));
+                    newpar2(newpar2 > opt.bounds(2, :)) = opt.bounds(2, newpar2 > opt.bounds(2, :));
 
                     % Calculate the objective value of the new proposal
                     newSS2 = feval( FUNC, OptAlgo.pTransfer('exp', newpar2) );
