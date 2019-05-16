@@ -148,11 +148,9 @@ function solution = createModelBypassDextran(time, params)
 
 end
 % =============================================================================
-%  CADET - The Chromatography Analysis and Design Toolkit
+%  CADET-MCMC
 %
-%  Copyright © 2008-2019: Eric von Lieres¹, Joel Andersson,
-%                         Andreas Puettmann¹, Sebastian Schnittert¹,
-%                         Samuel Leweke¹
+%  Copyright © 2018-2019: Qiaole He¹, Eric von Lieres¹
 %
 %    ¹ Forschungszentrum Juelich GmbH, IBG-1, Juelich, Germany.
 %
