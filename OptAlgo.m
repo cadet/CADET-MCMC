@@ -1385,11 +1385,11 @@ classdef OptAlgo < handle
 
 end % classdef
 % =============================================================================
-%              The MATLAB library for optimization case studies
+%  CADET-MCMC
 %
-%      Copyright © 2015-2017: Qiaole He
+%  Copyright © 2015-2019: Qiaole He¹, Eric von Lieres¹
 %
-%      Forschungszentrum Juelich GmbH, IBG-1, Juelich, Germany.
+%    ¹ Forschungszentrum Juelich GmbH, IBG-1, Juelich, Germany.
 %
 %  All rights reserved. This program and the accompanying materials
 %  are made available under the terms of the GNU Public License v3.0 (or, at
