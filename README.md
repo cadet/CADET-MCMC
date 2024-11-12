@@ -7,3 +7,5 @@ A MATLAB package for Markov Chain Monte Carlo and other algorithms to analyze ch
 * In order to use the package, [CADET-Core](https://github.com/cadet/CADET-Core) is required.
 
 This package is freely available under the terms of the GPLv3 license.
+
+It is deprecated and is no longer supported or maintained.
